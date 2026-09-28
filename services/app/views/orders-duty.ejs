@@ -1,0 +1,42 @@
+<%- include('partials/header', { title }) %>
+<%- include('partials/orders-tabs', { tabs }) %>
+
+<div class="page-head">
+  <h1>Приказы на наряд: <%= type.code %> — <%= type.name %></h1>
+  <a class="btn" href="/duties?type=<%= type.id %>">К графику</a>
+</div>
+
+<p class="muted">
+  Приказы, сохраненные при утверждении: так, как были подписаны (шаблон и
+  подписи — на момент утверждения). Приказ на несколько суток (выходные,
+  праздники) — одной строкой. Приказ, с которого утверждение снято, остается
+  в перечне с пометкой; печать — после повторного утверждения.
+</p>
+
+<% if (orders.length === 0) { %>
+  <p class="muted">Утвержденных приказов еще нет.</p>
+<% } else { %>
+  <table class="table">
+    <thead><tr><th>Приказ от</th><th>Наряд</th><th>Суток</th><th>Состояние</th><th></th></tr></thead>
+    <tbody>
+      <% orders.forEach((o) => { %>
+        <tr class="<%= o.approved ? '' : 'row-inactive' %>">
+          <td><%= fmtDay(o.order_date) %></td>
+          <td>с <%= fmtDateTime(o.starts_at) %> по <%= fmtDateTime(o.ends_at) %></td>
+          <td class="muted"><%= o.days %></td>
+          <td>
+            <% if (o.approved) { %><span class="status status-approved">утвержден</span>
+              <% if (o.template_version) { %><span class="muted">шаблон v<%= o.template_version %></span><% } %>
+            <% } else { %><span class="muted">утверждение снято</span><% } %>
+          </td>
+          <td>
+            <% if (o.approved) { %><a href="/duties/<%= o.duty_id %>/order" target="_blank">печатная форма</a><% } %>
+            <a class="btn btn-link" href="/duties/<%= o.duty_id %>">наряд</a>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<%- include('partials/footer') %>

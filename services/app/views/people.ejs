@@ -1,0 +1,112 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Личный состав</h1>
+  <% if (canStaff) { %><a class="btn btn-primary" href="/people/new">Принять на службу</a><% } %>
+</div>
+
+<p class="muted">
+  Люди по подразделениям — только люди, без вакансий. Фамилия открывает
+  карточку: данные, наряды, оружие, допуски, отсутствия. Структурой
+  подразделений и должностями управляют во вкладке «Подразделения».
+</p>
+
+<input type="search" id="people-search" class="people-search" placeholder="Поиск: фамилия, имя, должность…" autocomplete="off">
+
+<%
+  const render = (unit, depth) => {
+%>
+  <details class="unit-node people-node" <%= depth < 1 ? 'open' : '' %>>
+    <summary>
+      <span class="unit-name"><%= unit.short_name %></span>
+      <span class="muted">
+        своих <%= unit.own_count %> · в подчинении <%= unit.total_count %>
+        <% if (unit.commander_name) { %> · командир: <%= unit.commander_name %><% } %>
+      </span>
+    </summary>
+    <div class="unit-body">
+      <% if (unit.employees.length > 0) { %>
+        <table class="table">
+          <thead>
+            <tr><th class="col-num">№</th><th>Звание</th><th>Фамилия, имя, отчество</th><th>Должность</th><th></th></tr>
+          </thead>
+          <tbody>
+            <% unit.employees.forEach((e, i) => { %>
+              <% const away = absentToday.get(e.id); %>
+              <tr class="person-row" data-search="<%= [e.full_name, e.rank_name, e.position].filter(Boolean).join(' ').toLowerCase() %>">
+                <td class="col-num"><%= i + 1 %></td>
+                <td><%= e.rank_name || '—' %></td>
+                <td>
+                  <a href="/personnel/<%= e.id %>"><%= e.full_name %></a>
+                  <% if (unit.commander_employee_id === e.id) { %><span class="tag">командир</span><% } %>
+                </td>
+                <td class="muted"><%= e.position || '—' %></td>
+                <td><% if (away) { %><span class="tag tag-away"><%= away.reason %> <%= until(away.date_to) %></span><% } %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+      <% unit.children.forEach((child) => { render(child, depth + 1); }) %>
+    </div>
+  </details>
+<% }; %>
+
+<% tree.forEach((unit) => { render(unit, 0); }) %>
+
+<% if (unplaced.length > 0) { %>
+  <h2>За штатом</h2>
+  <table class="table">
+    <tbody>
+      <% unplaced.forEach((e, i) => { %>
+        <tr class="person-row" data-search="<%= [e.full_name, e.rank_name].filter(Boolean).join(' ').toLowerCase() %>">
+          <td class="col-num"><%= i + 1 %></td>
+          <td><%= e.rank_name || '—' %></td>
+          <td><a href="/personnel/<%= e.id %>"><%= e.full_name %></a> <span class="tag">за штатом</span></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<% if (excluded.length > 0) { %>
+  <details class="excluded-list">
+    <summary><h2 class="inline-h2">Исключенные из списков (<%= excluded.length %>)</h2></summary>
+    <table class="table">
+      <tbody>
+        <% excluded.forEach((e) => { %>
+          <tr class="person-row row-inactive" data-search="<%= [e.full_name, e.rank_name].filter(Boolean).join(' ').toLowerCase() %>">
+            <td><%= e.rank_name || '—' %></td>
+            <td><a href="/personnel/<%= e.id %>"><%= e.full_name %></a></td>
+            <td class="muted"><%= e.excluded_on ? fmtDay(e.excluded_on) : '' %> · <%= e.exclusion_reason || '' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </details>
+<% } %>
+
+<script>
+  // Поиск: оставляет строки с совпадением, раскрывает их подразделения и
+  // прячет подразделения, где никого не нашлось. Пусто — все как было.
+  (function () {
+    var input = document.getElementById('people-search');
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.person-row'));
+    var nodes = Array.prototype.slice.call(document.querySelectorAll('.people-node'));
+    var initial = nodes.map(function (n) { return n.open; });
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      rows.forEach(function (row) { row.hidden = Boolean(q) && row.dataset.search.indexOf(q) === -1; });
+      nodes.forEach(function (node, i) {
+        if (!q) { node.hidden = false; node.open = initial[i]; return; }
+        var found = Array.prototype.some.call(node.querySelectorAll('.person-row'), function (r) { return !r.hidden; });
+        node.hidden = !found;
+        node.open = found;
+      });
+      var excluded = document.querySelector('.excluded-list');
+      if (excluded && q) excluded.open = Array.prototype.some.call(excluded.querySelectorAll('.person-row'), function (r) { return !r.hidden; });
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

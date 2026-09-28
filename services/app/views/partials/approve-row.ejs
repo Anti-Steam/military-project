@@ -1,0 +1,89 @@
+<%
+  // Строка состава в окне утверждения вместе со скрытой формой замены.
+  // Место задается постом и сутками выхода: у постоянного состава суток нет.
+  const key = `${formDate}_${row.post.id}`;
+%>
+<tr class="<%= row.current ? (row.current.broken ? 'row-broken' : '') : 'row-empty' %>">
+  <td class="col-num"><%= index %></td>
+  <td>
+    <strong><%= row.post.name %></strong>
+    <% if (row.post.short_name) { %>
+      <span class="muted">(<%= row.post.short_name %>)</span>
+    <% } %>
+    <% if (row.post.start_time) { %>
+      <span class="muted">— <%= row.post.start_time.slice(0, 5) %>, <%= row.post.duration_hours %> ч</span>
+    <% } %>
+  </td>
+
+  <% if (row.current) { %>
+    <td><%= row.current.rank || '—' %></td>
+    <td>
+      <%= row.current.fullName || row.current.name %>
+      <% if (row.current.broken) { %>
+        <span class="warn-inline"><%= row.current.broken %></span>
+      <% } %>
+    </td>
+    <td class="muted"><%= row.current.unit || '—' %></td>
+  <% } else { %>
+    <td colspan="3"><span class="warn-inline">пост не замещен</span></td>
+  <% } %>
+
+  <td class="muted"><%= row.current && row.current.note ? row.current.note : '' %></td>
+
+  <td class="col-check">
+    <button type="button" class="btn btn-link"
+            <%= disabled ? 'disabled' : '' %> onclick="toggleReplace('<%= key %>')">
+      <%= row.current ? 'заменить' : 'назначить' %>
+    </button>
+  </td>
+</tr>
+
+<!-- Замена по одному месту: состав в остальном согласован, и открывать ради
+     одного человека всю форму назначения значит рисковать остальными. -->
+<tr id="replace-<%= key %>" class="replace-row" hidden>
+  <td></td>
+  <td colspan="6">
+    <form method="post" action="/duties/<%= dutyId %>/replace" class="form-inline">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="postId" value="<%= row.post.id %>">
+      <% if (row.onDate) { %>
+        <input type="hidden" name="onDate" value="<%= row.onDate %>">
+      <% } %>
+      <input type="hidden" name="back" value="<%= backUrl %>">
+
+      <label class="field">
+        <span class="field-label">Назначить на пост</span>
+        <!-- Освободить пост отсюда нельзя: примечание хранится при
+             назначении и вместе с ним исчезло бы, а приказ с пустым постом
+             все равно не утверждается. Чтобы снять человека совсем, на
+             карточке наряда есть снятие со ссылкой на приказ-основание. -->
+        <select name="employeeId" required>
+          <% row.candidates.forEach((c) => { %>
+            <% if (!busy.has(c.id) || (row.current && c.id === row.current.id)) { %>
+              <option value="<%= c.id %>"
+                      class="<%= c.justRested ? 'opt-just-rested' : '' %>"
+                      <%= row.current && row.current.id === c.id ? 'selected' : '' %>>
+                <%= c.justRested ? '● ' : '' %><%= c.short_name %> — <%= c.unit_short %>
+                [очередь <%= c.queue.value %>]
+              </option>
+            <% } %>
+          <% }) %>
+        </select>
+      </label>
+
+      <label class="field field-wide">
+        <span class="field-label">Причина замены</span>
+        <input type="text" name="note" required
+               placeholder="например: заболел, убыл в командировку, приказ № 118">
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Заменить</button>
+        <button type="button" class="btn"
+                <%= disabled ? 'disabled' : '' %> onclick="toggleReplace('<%= key %>')">
+          Отмена
+        </button>
+      </div>
+    </form>
+  </td>
+</tr>

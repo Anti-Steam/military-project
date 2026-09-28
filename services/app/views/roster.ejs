@@ -1,0 +1,111 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  // Состояние человека на выбранную дату — то же правило старшинства, что и
+  // в записке (раздел 9.2): приказ об убытии сильнее наряда, наряд сильнее
+  // отсыпного.
+  const stateOf = (e) => {
+    if (e.absentReason) {
+      return { kind: 'order', html: `<span class="warn-inline">${e.absentReason}</span>` };
+    }
+    if (e.onDuty) {
+      return { kind: 'duty', html: `<span class="tag tag-duty">в наряде: ${e.onDuty}</span>` };
+    }
+    if (e.resting) {
+      return { kind: 'rest', html: `<span class="tag tag-rest">отсыпной после: ${e.resting}</span>` };
+    }
+    const note = e.justRested
+      ? ` <span class="tag tag-just-rest">● вышел из отсыпного (${e.justRested})</span>` : '';
+    return { kind: 'present', html: `<span class="muted">налицо</span>${note}` };
+  };
+%>
+
+<div class="page-head">
+  <h1>Личный состав</h1>
+  <form method="get" action="/personnel/roster" class="cal-filter">
+    <label class="field-inline">
+      <span class="field-label">Состояние на дату</span>
+      <input type="date" name="date" value="<%= onDate %>" onchange="this.form.submit()">
+    </label>
+    <noscript><button type="submit" class="btn">Показать</button></noscript>
+  </form>
+  <a class="btn" href="/personnel?date=<%= onDate %>">К строевой записке</a>
+</div>
+
+<p class="muted">
+  Подразделения разворачиваются вниз: рота — взвод — отделение, и уже в
+  отделении виден его состав вместе с командиром. Состояние — на
+  <%= fmtDay(onDate) %>; те же числа сведены в строевой записке.
+  <% if (canAbsence) { %>
+    Отпуск, больничный, командировка и прочее вносятся здесь вручную;
+    впоследствии их будет заводить разбор приказа, а внесенное человеком
+    останется за человеком. Наряд и отсыпной руками не вносятся — они
+    считаются по назначениям.
+  <% } %>
+  <% if (scoped) { %>
+    Показано закрепленное за вами подразделение вместе со всеми вложенными.
+  <% } %>
+</p>
+
+<% tree.forEach((unit) => { %>
+  <%- include('partials/unit-node', {
+    unit, depth: 0, units, canAbsence, types, onDate, stateOf,
+  }) %>
+<% }) %>
+
+<noscript>
+  <p class="warn">
+    Без сценариев форма отметки отсутствия не собирается.
+    Отсутствие в этом случае вносится из карточки человека.
+  </p>
+</noscript>
+
+<%
+  // Образцы форм — по одному на страницу, а не по одному на человека:
+  // полтораста готовых форм в разметке давали страницу на мегабайт.
+  // Подставляется только номер человека, остальное одинаково.
+  const typeOptions = types.map((t) => `<option value="${t.code}">${t.name}</option>`).join('');
+
+  const absenceForm = `
+    <form method="post" action="/personnel/__ID__/absence" class="form-inline">
+      <input type="hidden" name="_csrf" value="${csrf}">
+      <input type="hidden" name="back" value="${onDate}">
+      <select name="typeCode">${typeOptions}</select>
+      <label class="field-inline"><span class="field-label">с</span>
+        <input type="date" name="dateFrom" value="${onDate}" required></label>
+      <label class="field-inline"><span class="field-label">по</span>
+        <input type="date" name="dateTo" value="${onDate}" required></label>
+      <label class="check-field"><input type="checkbox" name="openEnded"
+        onchange="this.form.dateTo.disabled = this.checked"><span>без срока</span></label>
+      <input type="text" name="documentRef" size="16" placeholder="приказ №, дата">
+      <input type="text" name="note" size="16" placeholder="примечание">
+      <button type="submit" class="btn btn-link">записать</button>
+    </form>`;
+
+%>
+
+<script>
+  (function () {
+    var FORMS = {
+      'absence-form': <%- JSON.stringify(absenceForm) %>
+    };
+
+    function fill(block, kind) {
+      if (block.dataset.filled) return;
+      block.dataset.filled = '1';
+
+      var holder = document.createElement('div');
+      holder.innerHTML = FORMS[kind].replace(/__ID__/g, block.dataset.employee);
+      block.appendChild(holder.firstElementChild);
+
+    }
+
+    ['absence-form'].forEach(function (kind) {
+      Array.prototype.forEach.call(document.querySelectorAll('.' + kind), function (block) {
+        block.addEventListener('toggle', function () { if (block.open) fill(block, kind); });
+      });
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

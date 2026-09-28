@@ -1,0 +1,90 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const query = (extra) => {
+    const p = new URLSearchParams();
+    const all = { from: filters.from, to: filters.to, table: filters.table, user: filters.userId,
+      employee: filters.employeeId, ...extra };
+    Object.entries(all).forEach(([k, val]) => { if (val) p.set(k, val); });
+    return `/audit?${p.toString()}`;
+  };
+%>
+
+<div class="page-head">
+  <h1>Журнал изменений</h1>
+</div>
+
+<p class="muted">
+  Каждое добавление, изменение и удаление данных — кто, когда, что было и что
+  стало. Журнал пишет сама база, поэтому в него попадает любое изменение; его
+  нельзя править или удалять. «Система» — изменения без пользователя
+  (обновление базы, служебные работы).
+</p>
+
+<form method="get" action="/audit" class="form-inline audit-filters">
+  <label class="field-inline"><span class="field-label">с</span>
+    <input type="date" name="from" value="<%= filters.from || '' %>"></label>
+  <label class="field-inline"><span class="field-label">по</span>
+    <input type="date" name="to" value="<%= filters.to || '' %>"></label>
+  <select name="table">
+    <option value="">— все разделы —</option>
+    <% Object.entries(tables).sort((a, b) => a[1].localeCompare(b[1], 'ru')).forEach(([code, name]) => { %>
+      <option value="<%= code %>" <%= filters.table === code ? 'selected' : '' %>><%= name %></option>
+    <% }) %>
+  </select>
+  <select name="user">
+    <option value="">— все пользователи —</option>
+    <% authors.forEach((a) => { %>
+      <option value="<%= a.id %>" <%= filters.userId === a.id ? 'selected' : '' %>><%= a.login %></option>
+    <% }) %>
+  </select>
+  <% if (filters.employeeId) { %>
+    <input type="hidden" name="employee" value="<%= filters.employeeId %>">
+    <span class="tag">по человеку № <%= filters.employeeId %></span>
+    <a href="<%= query({ employee: '' }) %>" class="btn btn-link">все люди</a>
+  <% } %>
+  <button type="submit" class="btn btn-primary">Показать</button>
+  <a class="btn" href="/audit">Сбросить</a>
+</form>
+
+<% if (items.length === 0) { %>
+  <p class="muted">Записей нет.</p>
+<% } else { %>
+  <table class="table audit-table">
+    <thead>
+      <tr><th>Когда</th><th>Кто</th><th>Раздел</th><th>Что</th><th>Изменения</th></tr>
+    </thead>
+    <tbody>
+      <% items.forEach((it) => { %>
+        <tr class="audit-<%= it.actionCode %>">
+          <td class="nowrap"><%= fmtDateTime(it.at) %></td>
+          <td><%= it.author %></td>
+          <td><%= it.section %></td>
+          <td>
+            <span class="tag"><%= it.action %></span>
+            <%= it.subject %>
+          </td>
+          <td>
+            <% it.changes.forEach((c) => { %>
+              <div class="audit-change">
+                <span class="muted"><%= c.field %>:</span>
+                <% if (c.from !== null && c.to !== null) { %>
+                  <del><%= c.from %></del> → <%= c.to %>
+                <% } else if (c.to !== null) { %>
+                  <%= c.to %>
+                <% } else { %>
+                  <del><%= c.from %></del>
+                <% } %>
+              </div>
+            <% }) %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  <% if (more) { %>
+    <p><a class="btn" href="<%= query({ before: lastId }) %>">Раньше →</a></p>
+  <% } %>
+<% } %>
+
+<%- include('partials/footer') %>

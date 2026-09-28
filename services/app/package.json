@@ -1,0 +1,16 @@
+{
+  "name": "military-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Единый сервис MVP: личный состав, наряды, приказы.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file=../../.env server.js",
+    "dev": "node --env-file=../../.env --watch server.js"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^5.1.0",
+    "pg": "^8.13.1"
+  }
+}

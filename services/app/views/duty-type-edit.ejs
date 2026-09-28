@@ -1,0 +1,282 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const WEEKDAYS = [
+    [1, 'понедельник'], [2, 'вторник'], [3, 'среда'], [4, 'четверг'],
+    [5, 'пятница'], [6, 'суббота'], [7, 'воскресенье'],
+  ];
+  // Строк расписания всегда на одну больше заполненных: пустая — место под
+  // следующее заступление, чтобы не заводить отдельную кнопку «добавить».
+  const rows = [...schedules.map((s) => ({ start: s.start_weekday, end: s.end_weekday })),
+    { start: '', end: '' }];
+  const chosen = new Set(permits.map((p) => p.id ?? p));
+  const chosenDays = new Set(schedules.map((s) => s.start_weekday));
+%>
+
+<h1><%= type ? 'Вид наряда: ' + type.code : 'Новый вид наряда' %></h1>
+
+<form method="post" action="<%= type ? '/duty-types/' + type.id : '/duty-types' %>" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Обозначение</span>
+      <input type="text" name="code" value="<%= type ? type.code : '' %>" required
+             placeholder="СН, ОД, ОО">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Наименование</span>
+      <input type="text" name="name" value="<%= type ? type.name : '' %>" required
+             placeholder="Суточный наряд">
+    </label>
+  </div>
+
+  <h2>Когда заступают</h2>
+
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Порядок заступления</span>
+      <select name="kind" id="kind">
+        <option value="daily" <%= type && type.kind === 'daily' ? 'selected' : '' %>>
+          Ежедневный — заступают каждые сутки
+        </option>
+        <option value="multiday" <%= type && type.kind === 'multiday' ? 'selected' : '' %>>
+          Многосуточная смена — по дням недели
+        </option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Час заступления</span>
+      <input type="time" name="startTime"
+             value="<%= type && type.start_time ? type.start_time.slice(0, 5) : '09:00' %>" required>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Длительность, часов</span>
+      <input type="text" name="durationHours"
+             value="<%= type && type.duration_hours ? type.duration_hours : 24 %>">
+      <span class="muted">Для ежедневного наряда. У смены длительность задает расписание.</span>
+    </label>
+  </div>
+
+  <div id="schedule-block">
+    <h3>Расписание смены</h3>
+    <p class="muted">
+      День заступления и день сдачи. Пятница → вторник означает смену с
+      пятницы по вторник; день сдачи принадлежит уже следующей смене.
+      Незаполненные строки не сохраняются.
+    </p>
+
+    <table class="table">
+      <thead>
+        <tr><th>Заступает</th><th>Сдает</th></tr>
+      </thead>
+      <tbody>
+        <% rows.forEach((row) => { %>
+          <tr>
+            <td>
+              <select name="startWeekday">
+                <option value="">— нет —</option>
+                <% WEEKDAYS.forEach(([n, label]) => { %>
+                  <option value="<%= n %>" <%= row.start === n ? 'selected' : '' %>><%= label %></option>
+                <% }) %>
+              </select>
+            </td>
+            <td>
+              <select name="endWeekday">
+                <option value="">— нет —</option>
+                <% WEEKDAYS.forEach(([n, label]) => { %>
+                  <option value="<%= n %>" <%= row.end === n ? 'selected' : '' %>><%= label %></option>
+                <% }) %>
+              </select>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+
+  <div id="weekday-block">
+    <h3>В какие дни наряд положен</h3>
+    <p class="muted">
+      Ничего не отмечено — наряд положен <strong>каждые сутки</strong>.
+      Отмеченные дни означают, что заступают только по ним: например,
+      суббота, воскресенье и понедельник.
+    </p>
+
+    <div class="weekday-row">
+      <% WEEKDAYS.forEach(([n, label]) => { %>
+        <label class="check-field">
+          <input type="checkbox" name="startWeekday" value="<%= n %>"
+                 <%= chosenDays.has(n) ? 'checked' : '' %>>
+          <span><%= label %></span>
+        </label>
+      <% }) %>
+    </div>
+  </div>
+
+  <label class="field">
+    <span class="field-label">Нерабочие дни</span>
+    <select name="holidayRule">
+      <option value="any" <%= !type || type.holiday_rule === 'any' ? 'selected' : '' %>>
+        Как обычно — праздники и выходные ничего не меняют
+      </option>
+      <option value="only" <%= type && type.holiday_rule === 'only' ? 'selected' : '' %>>
+        Только в нерабочие дни — выходные и праздники по справочнику
+      </option>
+      <option value="never" <%= type && type.holiday_rule === 'never' ? 'selected' : '' %>>
+        Никогда в нерабочие — только в рабочие дни
+      </option>
+    </select>
+    <span class="muted">
+      Считается по справочнику празднично-выходных дней: перенесенный рабочий
+      день считается рабочим, праздник среди недели — нерабочим.
+    </span>
+  </label>
+
+  <h2>Отдых после сдачи</h2>
+
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Отсыпной, суток</span>
+      <input type="text" name="sleepDays"
+             value="<%= type ? type.recovery_sleep_days : 1 %>">
+      <span class="muted">Привлечение ЗАПРЕЩЕНО: в эти сутки человек в наряд не ставится.
+        Каждые сутки отсыпного добавляют 0,5 к нагрузке — отдых входит в цену наряда.</span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Выходной, суток</span>
+      <input type="text" name="offDays" value="<%= type ? type.recovery_off_days : 0 %>">
+      <span class="muted">Положен по норме, но привлечение допускается. На нагрузку и очередь не влияет.</span>
+    </label>
+  </div>
+
+  <label class="check-field">
+    <input type="checkbox" name="excludeWeekends"
+           <%= type && type.rest_excludes_weekends ? 'checked' : '' %>>
+    <span>Отдых длится до начала следующего рабочего дня</span>
+  </label>
+  <p class="muted">
+    Для смены, которая сдает перед выходными: отсыпной не съедается субботой и
+    воскресеньем, а продолжается до рабочего дня.
+  </p>
+
+  <label class="check-field">
+    <input type="checkbox" name="allowConsecutive"
+           <%= type && type.allow_consecutive ? 'checked' : '' %>>
+    <span>Можно заступать подряд, не выждав отдыха от этого же наряда</span>
+  </label>
+  <p class="muted">
+    Для нарядов, которые несут ежедневно, и для крайнего случая, когда людей не
+    хватает. Снимает ровно два ограничения: запрет по отсыпному <strong>от этого
+    же наряда</strong> и порог очереди, который прячет сменившегося из списков.
+    Отдых от других нарядов, допуски, отсутствия, занятость и оружие остаются в
+    силе. У отдельного поста это можно задать точечно — в карточке поста.
+  </p>
+
+  <h2>Балансировка и допуски</h2>
+
+  <label class="field">
+    <span class="field-label">Вес наряда</span>
+    <input type="text" name="baseWeight" value="<%= type ? type.base_weight : '1.0' %>">
+    <span class="muted">
+      Сколько один наряд этого вида добавляет к нагрузке человека: суточный —
+      1, многосуточная смена — 2 и т. п. (от 0 до 100, можно дробное: 1,5).
+      Нагрузка за 30 суток понижает очередь заступления (коэффициент — на
+      странице «Подбор»), поэтому кто отстоял тяжелый наряд, в следующий раз
+      предлагается позже. К весу прибавляется: в выходной или праздник — ×1,5;
+      за каждые сутки отсыпного — +0,5. Пример: вес 1 с одними сутками
+      отсыпного — 1,5 в будни и 2 в выходной. У поста со своими часами выхода
+      (посменные посты) вес выхода считается по часам поста: 12 часов — 0,5.
+    </span>
+  </label>
+
+  <p class="field-label">Общие допуски, обязательные для заступления</p>
+  <% allPermitTypes.forEach((p) => { %>
+    <label class="check-field">
+      <input type="checkbox" name="permitTypeIds" value="<%= p.id %>"
+             <%= chosen.has(p.id) ? 'checked' : '' %>>
+      <span><%= p.name %></span>
+    </label>
+  <% }) %>
+  <p class="muted">
+    Проверяются у каждого кандидата на дату заступления. Допуск к конкретной
+    должности задается в карточке поста.
+  </p>
+
+  <% if (type) { %>
+    <label class="check-field">
+      <input type="checkbox" name="isActive" <%= type.is_active ? 'checked' : '' %>>
+      <span>Применяется</span>
+    </label>
+    <p class="muted">
+      Снятый с применения вид исчезает из графика и новых нарядов. Прошлые
+      наряды и приказы сохраняются без изменений.
+    </p>
+  <% } else { %>
+    <input type="hidden" name="isActive" value="on">
+  <% } %>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="/duty-types" class="btn">Отмена</a>
+    <% if (type) { %>
+      <a href="/duty-types/<%= type.id %>/order" class="btn">Шаблон приказа</a>
+    <% } %>
+  </div>
+</form>
+
+<% if (type) { %>
+  <h2>Удаление вида наряда</h2>
+
+  <% if (usage.duties > 0 || usage.posts > 0) { %>
+    <p class="warn">
+      Вид используется: нарядов — <%= usage.duties %>, постов — <%= usage.posts %>.
+      Обычный путь для отжившего вида — снять галочку «Применяется»: он
+      исчезнет из графика, а приказы прошлых периодов останутся читаемыми.
+      Удаление уносит вместе с видом его посты, наряды и назначения —
+      приказы по нему прочитать будет нельзя.
+    </p>
+    <form method="post" action="/duty-types/<%= type.id %>/delete"
+          onsubmit="return confirm('Удалить вид «<%= type.code %>» вместе с нарядами и постами? Действие необратимо.')">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <label class="check-field">
+        <input type="checkbox" name="withData" required>
+        <span>Понимаю: будут удалены посты (<%= usage.posts %>) и наряды (<%= usage.duties %>)</span>
+      </label>
+      <button type="submit" class="btn">Удалить вид вместе с данными</button>
+    </form>
+  <% } else { %>
+    <p class="muted">
+      Вид нигде не использован, его можно удалить. Действие необратимо.
+    </p>
+    <form method="post" action="/duty-types/<%= type.id %>/delete"
+          onsubmit="return confirm('Удалить вид наряда «<%= type.code %>»?')">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button type="submit" class="btn">Удалить вид наряда</button>
+    </form>
+  <% } %>
+<% } %>
+
+<script>
+  // Расписание нужно только смене: у ежедневного наряда его нет, и показывать
+  // пустую таблицу значит предлагать заполнить то, что не используется.
+  (function () {
+    var kind = document.getElementById('kind');
+    var block = document.getElementById('schedule-block');
+
+    var days = document.getElementById('weekday-block');
+
+    function refresh() {
+      block.hidden = kind.value !== 'multiday';
+      days.hidden = kind.value === 'multiday';
+    }
+    kind.addEventListener('change', refresh);
+    refresh();
+  })();
+</script>
+
+<%- include('partials/footer') %>

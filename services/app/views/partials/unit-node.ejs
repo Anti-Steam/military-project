@@ -1,0 +1,97 @@
+<%
+  // Узел дерева подразделений. Разворачивается вниз: рота — взводы —
+  // отделения. Открыты по умолчанию только верхние уровни, иначе полторы
+  // сотни человек вываливаются на экран разом.
+  const open = depth < 1;
+  const mayAbsence = typeof canAbsence !== 'undefined' && canAbsence;
+  const absenceTypes = typeof types === 'undefined' ? [] : types;
+  const day = typeof onDate === 'undefined' ? '' : onDate;
+%>
+<details class="unit-node" <%= open ? 'open' : '' %>>
+  <summary>
+    <span class="unit-name"><%= unit.short_name %></span>
+    <% if (!unit.is_active) { %><span class="muted">(выведено из применения)</span><% } %>
+    <span class="muted">
+      <% if (unit.own_count) { %>своих <%= unit.own_count %><% } %>
+      <% if (unit.total_count !== unit.own_count) { %> · в подчинении <%= unit.total_count %><% } %>
+      <% if (unit.commander_name) { %> · командир: <%= unit.commander_name %><% } %>
+    </span>
+  </summary>
+
+  <div class="unit-body">
+    <% if (unit.employees && unit.employees.length > 0) { %>
+      <table class="table">
+        <thead>
+          <tr>
+            <th class="col-num">№</th>
+            <th>Звание</th>
+            <th>Фамилия, имя, отчество</th>
+            <th>Должность</th>
+            <th>Состояние</th>
+            <% if (mayAbsence) { %><th>Отсутствие</th><% } %>
+          </tr>
+        </thead>
+        <tbody>
+          <% unit.employees.forEach((e, i) => { %>
+            <% const state = stateOf(e); %>
+            <tr id="emp-<%= e.id %>" class="<%= state.kind === 'present' ? '' : 'row-inactive' %>">
+              <td class="col-num"><%= i + 1 %></td>
+              <td><%= e.rank_name || '—' %></td>
+              <td>
+                <a href="/personnel/<%= e.id %>"><%= e.full_name %></a>
+                <% if (unit.commander_employee_id === e.id) { %>
+                  <span class="tag">командир</span>
+                <% } %>
+              </td>
+              <td class="muted"><%= e.position || '—' %></td>
+              <td><%- state.html %></td>
+
+              <% if (mayAbsence) { %>
+                <td>
+                  <% if (e.absence) { %>
+                    <!-- Запись уже есть: ее можно только снять, а снятие
+                         сохраняется — основание не исчезает бесследно. -->
+                    <span class="muted">
+                      <% if (e.absence.date_from === e.absence.date_to) { %><%
+                        %><%= fmtDay(e.absence.date_from) %><%
+                      %><% } else { %><%
+                        %>с <%= fmtDay(e.absence.date_from) %><%= e.absence.date_to === 'infinity' ? ', без срока' : ' по ' + fmtDay(e.absence.date_to) %><%
+                      %><% } %>
+                      <% if (e.absence.document_ref) { %> · <%= e.absence.document_ref %><% } %>
+                      <% if (e.absence.source === 'import') { %>
+                        <span class="tag">из приказа</span>
+                      <% } %>
+                    </span>
+                    <form method="post" action="/absences/<%= e.absence.id %>/cancel" class="form-inline">
+                      <input type="hidden" name="_csrf" value="<%= csrf %>">
+                      <input type="hidden" name="back" value="<%= day %>">
+                      <button type="submit" class="btn btn-link">снять</button>
+                    </form>
+                  <% } else if (e.onDuty || e.resting) { %>
+                    <span class="muted">наряд считается автоматически</span>
+                  <% } else { %>
+                    <!-- Форма собирается при раскрытии: людей на странице
+                         полторы сотни, и полтораста готовых форм в разметке
+                         давали страницу на мегабайт. -->
+                    <details class="absence-form" data-employee="<%= e.id %>">
+                      <summary>отметить</summary>
+                    </details>
+                  <% } %>
+                </td>
+              <% } %>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p class="muted">Своего личного состава нет.</p>
+    <% } %>
+
+    <% unit.children.forEach((child) => { %>
+      <%- include('unit-node', {
+        unit: child, depth: depth + 1, units,
+        canAbsence: mayAbsence, types: absenceTypes, onDate: day, stateOf,
+      }) %>
+    <% }) %>
+  </div>
+</details>

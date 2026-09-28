@@ -1,0 +1,173 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Настройка подбора</h1>
+  <a class="btn" href="/duties">К графику</a>
+</div>
+
+<%
+  // Пример к каждому параметру — на числах, чтобы было видно, что меняется.
+  const EXAMPLE = {
+    'queue.min_days_off': 'Сдал наряд 10-го. При 1 — предлагается с 11-го; при 2 — с 12-го.',
+    'queue.ready_max_days': 'При 30: не ходил 12 суток — готовность 12; не ходил 45 суток (отпуск) — все равно 30.',
+    'queue.unassigned_bonus': 'Потолок 30, надбавка 5: новичок — 35, т. е. впереди всех, кто давно не ходил.',
+    'queue.workload_factor': 'За 30 суток два суточных наряда (вес 1) в будни с отсыпным по 1 суткам: нагрузка '
+      + '(1 + 0,5) × 2 = 3. При 0,3 очередь ниже на 0,9 — меньше суток простоя.',
+  };
+%>
+
+<p class="muted">
+  Очередь заступления считается так:
+  <code>готовность − нагрузка × коэффициент + вес звания на посту + личная
+  поправка</code>. Первым предлагается наибольший. Единица очереди — примерно
+  одни сутки простоя: вес «+2» значит «как будто не ходил на двое суток дольше».
+  Отрицательная очередь из списка не убирает: убирает только порог, а он
+  считается в сутках простоя после сдачи — нельзя заступать в сутки сдачи, со
+  следующих можно.
+</p>
+<p class="muted">
+  Эту же разбивку для конкретного человека видно в его карточке, вкладка
+  «Наряды» → «Очередь заступления».
+</p>
+
+<p class="warn">
+  Жёсткие правила — допуск, отсутствие, отсыпной, занятость, оружие — весами не
+  выражаются. Это запреты, а не предпочтения: кандидат, который их не проходит,
+  в расчёт не попадает, и никакая настройка его не вернёт.
+</p>
+
+<form method="post" action="/settings" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th class="col-post">Параметр</th>
+        <th>Значение</th>
+        <th>Что делает</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% settings.forEach((s) => { %>
+        <tr>
+          <td><strong><%= s.name %></strong></td>
+          <td>
+            <input type="text" name="value_<%= s.key %>" value="<%= s.value %>" size="8">
+          </td>
+          <td>
+            <%= s.description %>
+            <% if (EXAMPLE[s.key]) { %><div class="muted">Пример: <%= EXAMPLE[s.key] %></div><% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </div>
+</form>
+
+<h2>Веса на постах</h2>
+<p class="muted">
+  <strong>Вес звания</strong> — верхняя строка поста, массовое правило: всем с
+  этим званием на этом посту прибавляется к очереди. Например, на «дежурного по
+  роте» сержантам +3, рядовым −3: при прочих равных предложат сержанта, но
+  рядовой, не ходивший на неделю дольше, все равно окажется впереди. Пустое —
+  ноль. Можно дробное (1,5); не больше 100 по модулю — больше перевешивает
+  любую очередь и становится негласным запретом (запреты задаются допусками).
+  Офицерских званий в строке нет — у них вес на постах нулевой.
+</p>
+<p class="muted">
+  <strong>Личные поправки</strong> — под строкой поста: исключение для одного
+  человека на этом посту поверх веса звания (например, −5 «по состоянию
+  здоровья реже на ночные посты»). Пишите основание — через месяц
+  без него никто не вспомнит, откуда поправка. «Снять» — поправки больше нет
+  (это не то же самое, что 0). Та же поправка правится в карточке человека —
+  это одна запись, показанная с двух сторон.
+</p>
+
+<% posts.forEach((p) => { %>
+  <div class="post-weights" id="post-<%= p.id %>">
+    <form method="post" action="/posts/<%= p.id %>/rank-weights" class="form-inline rank-weights">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <span class="rank-post"><span class="tag"><%= p.duty_code %></span> <%= p.name %></span>
+      <% ranks.forEach((r) => { %>
+        <label class="rank-cell">
+          <span class="muted"><%= r.short_name %></span>
+          <input type="text" name="rank_<%= r.id %>" size="3"
+                 value="<%= (p.weights[r.id] !== undefined ? p.weights[r.id] : '') %>">
+        </label>
+      <% }) %>
+      <button type="submit" class="btn btn-link">сохранить</button>
+    </form>
+
+    <!-- Личные поправки к этому посту. Свернуты, когда их нет: перечень
+         исключений должен быть виден, а пустой перечень — не мешать. -->
+    <details class="personal-weights" <%= p.personal.length > 0 ? 'open' : '' %>>
+      <summary>
+        Личные поправки
+        <% if (p.personal.length > 0) { %>
+          <span class="tag"><%= p.personal.length %></span>
+        <% } else { %>
+          <span class="muted">нет</span>
+        <% } %>
+      </summary>
+
+      <% p.personal.forEach((w) => { %>
+        <form method="post" action="/posts/<%= p.id %>/personal-weight" class="form-inline">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <input type="hidden" name="employeeId" value="<%= w.employeeId %>">
+          <a class="personal-name" href="/personnel/<%= w.employeeId %>"><%= w.name %></a>
+          <span class="muted"><%= w.unit %></span>
+          <input type="text" name="weight" size="3" value="<%= w.weight %>">
+          <input type="text" name="note" size="28" value="<%= w.note || '' %>"
+                 placeholder="основание">
+          <button type="submit" class="btn btn-link">сохранить</button>
+          <button type="submit" name="remove" value="1" class="btn btn-link">снять</button>
+        </form>
+      <% }) %>
+
+      <form method="post" action="/posts/<%= p.id %>/personal-weight" class="form-inline">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <!-- Список людей подставляется при раскрытии: постов три десятка, и
+             полторы сотни фамилий в каждом списке разом давали страницу на
+             полмегабайта. -->
+        <select name="employeeId" data-employees>
+          <option value="">— выберите человека —</option>
+        </select>
+        <input type="text" name="weight" size="3" placeholder="±">
+        <input type="text" name="note" size="28" placeholder="основание">
+        <button type="submit" class="btn btn-link">добавить</button>
+        <noscript>
+          <span class="muted">без сценариев добавляйте поправку в карточке человека</span>
+        </noscript>
+      </form>
+    </details>
+  </div>
+<% }) %>
+
+<template id="employee-options"><% employees.forEach((e) => { %><option value="<%= e.id %>"><%= e.short_name %> — <%= e.unit_short %></option><% }) %></template>
+
+<script>
+  // Один перечень фамилий на всю страницу, копируется в список поста при его
+  // раскрытии. Списки, раскрытые сразу (у постов с поправками), заполняются
+  // при загрузке.
+  (function () {
+    var template = document.getElementById('employee-options');
+
+    function fill(select) {
+      if (!select || select.dataset.filled) return;
+      select.dataset.filled = '1';
+      select.appendChild(template.content.cloneNode(true));
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('.personal-weights'), function (block) {
+      var select = block.querySelector('select[data-employees]');
+      if (block.open) fill(select);
+      block.addEventListener('toggle', function () { if (block.open) fill(select); });
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

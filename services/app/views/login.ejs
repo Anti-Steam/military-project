@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body class="login-body">
+  <main class="login-box">
+    <h1>АИС учёта личного состава</h1>
+
+    <% if (error) { %>
+      <p class="warn"><%= error %></p>
+    <% } %>
+
+    <!-- Причина отказа одна и та же для неизвестного логина и неверного
+         пароля: разные сообщения позволяют перебором выяснить, какие
+         учётные записи заведены. -->
+    <form method="post" action="/login" class="form">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="next" value="<%= next %>">
+
+      <label class="field">
+        <span class="field-label">Логин</span>
+        <input type="text" name="login" value="<%= login %>" autocomplete="username"
+               autofocus required>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Пароль</span>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Войти</button>
+      </div>
+    </form>
+
+    <p class="muted">
+      Три неверные попытки подряд блокируют учётную запись на десять минут.
+      Логин и временный пароль выдаёт администратор.
+    </p>
+  </main>
+</body>
+</html>

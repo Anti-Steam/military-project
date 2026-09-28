@@ -1,0 +1,24 @@
+<%# Раздел «Приказы»: хранилище приказов по назначению — допуски, отсутствия
+    дежурства и прочие (свои виды — караул и т. п.). В «Дежурствах» — подвкладки по видам нарядов; они берутся
+    из текущего перечня видов, поэтому новый вид появляется сам, удаленный —
+    пропадает. %>
+<nav class="tabs orders-tabs">
+  <a class="tab <%= tabs.active === 'permits' ? 'tab-active' : '' %>" href="/permits">Допуски</a>
+  <a class="tab <%= tabs.active === 'absences' ? 'tab-active' : '' %>" href="/orders/absences">Отсутствия</a>
+  <a class="tab <%= tabs.active === 'other' ? 'tab-active' : '' %>" href="/orders/other" title="Приказы своих видов: караул и т. п.">Прочие</a>
+  <% if (tabs.dutyTypes.length > 0) { %>
+    <a class="tab <%= String(tabs.active).startsWith('duty') ? 'tab-active' : '' %>" href="/orders/duty">Дежурства</a>
+  <% } %>
+  <% if (!currentUser.scope_unit_id && (can('permit.manage') || can('absence.manage'))) { %>
+    <a class="tab tab-aside" href="/orders/parse" title="Слова, по которым система разбирает приказы">Словарь разбора</a>
+  <% } %>
+</nav>
+<% if (String(tabs.active).startsWith('duty')) { %>
+  <nav class="tabs subtabs">
+    <% tabs.dutyTypes.forEach((t) => { %>
+      <a class="tab <%= tabs.active === 'duty-' + t.id ? 'tab-active' : '' %>" href="/orders/duty/<%= t.id %>">
+        <%= t.code %><span class="tab-full"> — <%= t.name %></span>
+      </a>
+    <% }) %>
+  </nav>
+<% } %>

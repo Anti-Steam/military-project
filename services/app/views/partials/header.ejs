@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/print.css" media="print">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">АИС учёта личного состава</a>
+
+    <!-- В меню остается только то, на что есть право: пункт, ведущий к
+         отказу, сообщает о недоступном ровно столько же, сколько его
+         отсутствие, но тратит время на щелчок. -->
+    <nav class="nav">
+      <% if (typeof can === 'function' && can('duty.view')) { %>
+        <a href="/duties">График нарядов</a>
+      <% } %>
+      <% if (typeof can === 'function' && (can('dutytype.manage') || can('post.manage'))) { %>
+        <a href="/duty-types">Наряды</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('calendar.manage')) { %>
+        <a href="/calendar">Выходные</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('weapon.view')) { %>
+        <a href="/weapons">Оружие</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('personnel.view')) { %>
+        <a href="/people">Личный состав</a>
+        <a href="/personnel">Строевая записка</a>
+        <a href="/permits">Приказы</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('unit.manage')) { %>
+        <a href="/units">Подразделения</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('queue.manage')) { %>
+        <a href="/settings">Подбор</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('user.manage')) { %>
+        <a href="/users">Учётные записи</a>
+      <% } %>
+      <% if (typeof can === 'function' && can('audit.view')) { %>
+        <a href="/audit">Журнал</a>
+      <% } %>
+    </nav>
+
+    <% if (typeof currentUser !== 'undefined' && currentUser) { %>
+      <div class="whoami">
+        <a href="/me" title="Мои данные: наряды, допуски, отсутствия, оружие; где я вошел; смена пароля">Мои данные (<%= currentUser.login %>)</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <button type="submit" class="btn btn-link">выход</button>
+        </form>
+      </div>
+    <% } %>
+  </header>
+  <main class="container">

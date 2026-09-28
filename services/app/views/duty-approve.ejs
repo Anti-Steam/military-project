@@ -1,0 +1,163 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const weekdays = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+  const dayName = (key) => {
+    const [y, m, d] = key.split('-').map(Number);
+    return weekdays[new Date(y, m - 1, d, 12).getDay()];
+  };
+  const backUrl = `/duties/approve?type=${dutyType.id}&date=${focusDate}&unit=${unitId}`;
+%>
+
+<div class="page-head">
+  <h1>
+    Утверждение приказа — <%= dutyType.code %><% if (days.length > 1) { %>,
+      <%= days.length %> суток<% } else { %>, <%= fmtDay(days[0].startDate) %><% } %>
+  </h1>
+  <div class="actions">
+    <a class="btn" href="/duties/plan?type=<%= dutyType.id %>&date=<%= focusDate %>&unit=<%= unitId %>">
+      Изменить личный состав
+    </a>
+    <a class="btn" href="/duties?type=<%= dutyType.id %>&month=<%= days[0].startDate.slice(0, 7) %>">
+      К графику
+    </a>
+  </div>
+</div>
+
+<p class="<%= days.length > 1 ? 'warn' : 'muted' %>">
+  Срок выпуска приказа — <strong><%= fmtDay(deadline) %></strong>
+  (<%= dayName(deadline) %>).
+  <% if (days.length > 1) { %>
+    Приказ один на все <%= days.length %> суток и утверждается целиком.
+  <% } %>
+  Замещено <strong><%= assignedTotal - brokenTotal %></strong> из <%= requiredTotal %>.
+</p>
+
+<% if (unfilledTotal > 0) { %>
+  <p class="warn">
+    Приказ утвердить нельзя: не закрыто постов — <strong><%= unfilledTotal %></strong>.
+    Утверждается только полностью замещенный состав: подпись под пустым постом
+    означала бы, что заступать некому, а документ уже подписан.
+  </p>
+<% } else if (approved) { %>
+  <p class="muted">
+    Приказ утвержден. Любое изменение состава возвращает его в проект —
+    подписанный состав и фактический должны совпадать.
+  </p>
+<% } %>
+
+<% days.forEach((day) => { %>
+  <%
+    // Замена не должна предлагать тех, кто уже стоит в этих сутках на
+    // другом посту: иначе один человек оказался бы на двух постах разом.
+    const busy = new Set(day.rows.filter((r) => r.current).map((r) => r.current.id));
+  %>
+  <section class="plan-day">
+    <h2 class="<%= day.nonWorking ? 'plan-day-off' : '' %>">
+      <%= fmtDay(day.startDate) %>, <%= dayName(day.startDate) %>
+      <% if (day.nonWorking) { %><span class="tag tag-holiday">нерабочий</span><% } %>
+      <span class="muted">
+        замещено <%= day.assignedCount - day.brokenCount %> из <%= day.postCount %>
+        <% if (day.duty) { %>
+          · <span class="status status-<%= day.duty.status %>"><%= dutyStatus(day.duty.status) %></span>
+        <% } %>
+      </span>
+    </h2>
+
+    <% if (!day.duty) { %>
+      <p class="warn">
+        Наряд на эти сутки не создан —
+        <a href="/duties/plan?type=<%= dutyType.id %>&date=<%= day.startDate %>&unit=<%= unitId %>">
+          назначить состав
+        </a>.
+      </p>
+    <% } else { %>
+      <table class="table">
+        <thead>
+          <tr>
+            <th class="col-num">№</th>
+            <th class="col-post">Пост</th>
+            <th>Звание</th>
+            <th>Фамилия, имя, отчество</th>
+            <th>Подразделение</th>
+            <th>Примечание</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% day.rows.forEach((row, i) => { %>
+            <%- include('partials/approve-row', { row, index: i + 1, dutyId: day.duty.id,
+                  formDate: day.startDate, busy, backUrl,
+                  disabled: day.startDate <= today() }) %>
+          <% }) %>
+        </tbody>
+      </table>
+
+      <!-- Посты со своим графиком сменяются каждые сутки, но входят в этот
+           же приказ: отдельными пунктами по дням. -->
+      <% (day.shiftDays || []).forEach((sd) => { %>
+        <%
+          const busyShift = new Set(sd.rows.filter((r) => r.current).map((r) => r.current.id));
+        %>
+        <h3 class="<%= sd.nonWorking ? 'plan-day-off' : '' %>">
+          Посты на сутки <%= fmtDay(sd.date) %>, <%= dayName(sd.date) %>
+          <span class="muted">замещено <%= sd.assignedCount - sd.brokenCount %> из <%= sd.postCount %></span>
+        </h3>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="col-num">№</th>
+              <th class="col-post">Пост</th>
+              <th>Звание</th>
+              <th>Фамилия, имя, отчество</th>
+              <th>Подразделение</th>
+              <th>Примечание</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% sd.rows.forEach((row, i) => { %>
+              <%- include('partials/approve-row', { row, index: i + 1, dutyId: day.duty.id,
+                    formDate: sd.date, busy: busyShift, backUrl,
+                    disabled: sd.date <= today() }) %>
+            <% }) %>
+          </tbody>
+        </table>
+      <% }) %>
+    <% } %>
+  </section>
+<% }) %>
+
+<div class="actions">
+  <% if (dutyIds.length > 0 && unfilledTotal === 0 && !approved && days.every(d=>d.startDate>today())) { %>
+    <form method="post" action="/duties/plan/approve">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="dutyTypeId" value="<%= dutyType.id %>">
+      <input type="hidden" name="date" value="<%= focusDate %>">
+      <input type="hidden" name="unitId" value="<%= unitId %>">
+      <button type="submit" class="btn btn-primary">
+        Утвердить приказ<%= days.length > 1 ? ` (${days.length} суток)` : '' %>
+      </button>
+    </form>
+  <% } else if (unfilledTotal > 0) { %>
+    <button type="button" class="btn" disabled title="Не закрыты посты">
+      Утвердить приказ
+    </button>
+  <% } %>
+
+  <% if (approved && unfilledTotal===0) { %>
+    <a class="btn" href="/duties/<%= dutyIds[0] %>/order" target="_blank">
+      Сформировать приказ
+    </a>
+  <% } %>
+</div>
+
+<script>
+  function toggleReplace(key) {
+    var row = document.getElementById('replace-' + key);
+    row.hidden = !row.hidden;
+  }
+</script>
+
+<%- include('partials/footer') %>

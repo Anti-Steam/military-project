@@ -1,0 +1,73 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Учётные записи</h1>
+  <div class="actions">
+    <a class="btn btn-primary" href="/users/new">Завести запись</a>
+    <a class="btn" href="/security">Журнал доступа</a>
+  </div>
+</div>
+
+<p class="muted">
+  Роль задаёт набор прав по умолчанию. Отдельное право можно выдать сверх роли
+  либо отнять — тогда в столбце «правки» стоит их число.
+</p>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th class="col-num">№</th>
+      <th>Логин</th>
+      <th>Сотрудник</th>
+      <th>Подразделение</th>
+      <th>Роль</th>
+      <th>Закреплено</th>
+      <th>Правки прав</th>
+      <th>Состояние</th>
+      <th>Последний вход</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <% users.forEach((u, i) => { %>
+      <%
+        const locked = Boolean(u.locked_ip_until);
+      %>
+      <tr class="<%= u.is_active ? '' : 'row-inactive' %>">
+        <td class="col-num"><%= i + 1 %></td>
+        <td><a href="/users/<%= u.id %>"><%= u.login %></a></td>
+        <td><%= u.full_name || '—' %></td>
+        <td class="muted"><%= u.unit_short || '—' %></td>
+        <td><%= u.role_name %></td>
+        <td class="muted"><%= u.scope_unit_short || 'вся часть' %></td>
+        <td class="muted">
+          <% if (u.granted_extra) { %>+<%= u.granted_extra %><% } %>
+          <% if (u.revoked_extra) { %>−<%= u.revoked_extra %><% } %>
+          <% if (!u.granted_extra && !u.revoked_extra) { %>—<% } %>
+        </td>
+        <td>
+          <% if (!u.is_active) { %>
+            <span class="muted">отключена</span>
+          <% } else if (locked) { %>
+            <span class="warn-inline" title="Неверные попытки входа шли с этих компьютеров; с остальных вход открыт">вход с <%= u.locked_ips %> заблокирован до <%= fmtDateTime(u.locked_ip_until) %></span>
+          <% } else if (u.must_change_password) { %>
+            <span class="tag tag-note">временный пароль</span>
+          <% } else { %>
+            <span class="muted">действует</span>
+          <% } %>
+        </td>
+        <td class="muted"><%= u.last_login_at ? fmtDateTime(u.last_login_at) : 'не входил' %></td>
+        <td class="col-check">
+          <% if (locked) { %>
+            <form method="post" action="/users/<%= u.id %>/unlock">
+              <input type="hidden" name="_csrf" value="<%= csrf %>">
+              <button type="submit" class="btn btn-link">разблокировать</button>
+            </form>
+          <% } %>
+        </td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+
+<%- include('partials/footer') %>

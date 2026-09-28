@@ -1,0 +1,128 @@
+<%
+  // Строка замещения одного места: пост вместе с сутками, на которые он
+  // замещается. Постоянный состав и выход посменного поста отличаются
+  // только сутками в имени поля, поэтому разметка у них одна.
+  const post = row.post;
+  const candidates = row.candidates;
+  const current = row.current;
+
+  // Назначенный ранее мог выпасть из кандидатов. Само по себе это еще не
+  // порок: он мог выпасть потому, что занят в другом, ПОЗЖЕ заступающем
+  // наряде — виноват тогда тот наряд, а не этот. Тревожная пометка ставится
+  // только при настоящем нарушении, и определяется оно тем же расчетом,
+  // что и в графике.
+  const outOfList = current && !current.inCandidates;
+  const broken = current && current.broken;
+%>
+<tr class="<%= current ? (broken ? 'row-broken' : '') : 'row-empty' %>">
+  <td>
+    <strong><%= post.name %></strong>
+    <% if (post.short_name) { %>
+      <span class="muted">(<%= post.short_name %>)</span>
+    <% } %>
+    <% if (post.start_time) { %>
+      <span class="muted">— <%= post.start_time.slice(0, 5) %>, <%= post.duration_hours %> ч</span>
+    <% } %>
+  </td>
+  <td class="muted">
+    <% if (row.responsible) { %>
+      <span class="tag tag-unit"><%= row.responsible.short %></span>
+      <span class="muted" title="Откуда взялось закрепление"><%= row.responsible.source %></span>
+    <% } else { %>
+      <span class="muted">не закреплён</span>
+    <% } %>
+
+    <% if (typeof canAssignResponsibility !== 'undefined' && canAssignResponsibility) { %>
+      <!-- Точечное закрепление сильнее очереди: им начальник службы правит
+           отдельные сутки, не ломая сам порядок. -->
+      <form method="post" action="/duties/post-responsibility" class="form-inline">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <input type="hidden" name="postId" value="<%= post.id %>">
+        <input type="hidden" name="onDate" value="<%= formDate %>">
+        <input type="hidden" name="dutyTypeId" value="<%= dutyTypeId %>">
+        <input type="hidden" name="date" value="<%= focusDate %>">
+        <%
+          // Перечень подразделений — один на страницу (lazy-select.js), в
+          // строке только выбранное: строк на странице десятки.
+          const pinned = row.responsible && row.responsible.source === 'точечно'
+            ? responsibleUnits.find((u) => u.id === row.responsible.unitId) : null;
+        %>
+        <select name="unitId" data-options="responsibleUnits">
+          <option value="">— по общему порядку —</option>
+          <% if (pinned) { %>
+            <option value="<%= pinned.id %>" selected><%= pinned.path_name || pinned.short_name %></option>
+          <% } %>
+        </select>
+        <button type="submit" class="btn btn-link">закрепить</button>
+      </form>
+    <% } %>
+  </td>
+  <td>
+    <select form="roster-form" name="post_<%= formDate %>_<%= post.id %>" data-class="<%= row.slotClass %>">
+      <option value="">— не замещать —</option>
+
+      <% if (outOfList) { %>
+        <option value="<%= current.id %>" selected>
+          <%= current.name %> — назначен ранее<%= broken ? ', ' + broken : '' %>
+        </option>
+      <% } %>
+
+      <% candidates.forEach((c) => { %>
+        <option value="<%= c.id %>"
+                class="<%= c.justRested ? 'opt-just-rested' : '' %>"
+                <%= current && current.id === c.id ? 'selected' : '' %>>
+          <%= c.justRested ? '● ' : '' %><%= c.short_name %> — <%= c.unit_short %>
+          [очередь <%= c.queue.value %>]<%= c.justRested ? ' — сразу после отсыпного' : '' %>
+        </option>
+      <% }) %>
+    </select>
+
+    <% if (candidates.length === 0 && !current) { %>
+      <span class="warn-inline">нет допущенных в наличии</span>
+    <% } else { %>
+      <span class="muted candidate-count"><%= candidates.length %></span>
+    <% } %>
+
+    <% if (broken) { %>
+      <span class="warn-inline">назначен с нарушением: <%= broken %></span>
+    <% } %>
+
+    <% if (current && current.note) { %>
+      <span class="tag tag-note" title="Примечание к назначению"><%= current.note %></span>
+    <% } %>
+
+    <% if (row.weapon) { %>
+      <%
+        // Оружие на наряд: у кого своего нет, тому здесь же выбирают чужое —
+        // из оружия людей, свободных в эти и следующие сутки. Список
+        // наполняет страница из общего перечня группы (вид и окно).
+        const w = row.weapon.current;
+        const ownPerson = w && w.state === 'own' && current ? current.id : '';
+        const savedPerson = w && current ? current.id : '';
+      %>
+      <div class="weapon-pick" data-weapon-group="<%= row.weapon.group %>"
+           data-weapon-kind="<%= row.weapon.kind %>"
+           data-own-person="<%= ownPerson %>" data-saved-person="<%= savedPerson %>">
+        <span class="muted weapon-own" <%= ownPerson ? '' : 'hidden' %>>
+          личное оружие<%= w && w.state === 'own' ? ': ' + w.label : '' %>
+        </span>
+        <label class="weapon-choice" <%= current && !ownPerson ? '' : 'hidden' %>>
+          <span class="field-label">Оружие на наряд — своего <%= row.weapon.kind === 'rifle' ? 'автомата' : 'пистолета' %> нет</span>
+          <select form="roster-form" name="weapon_<%= formDate %>_<%= post.id %>">
+            <option value="">— выберите оружие —</option>
+            <% if (w && w.state === 'loan') { %>
+              <option value="<%= w.weapon.id %>" selected>
+                <%= w.label %> — <%= w.weapon.owner || 'не закреплено' %>
+              </option>
+            <% } %>
+          </select>
+          <% if (w && w.problem) { %>
+            <span class="warn-inline"><%= w.problem %></span>
+          <% } else if (w && w.state === 'missing') { %>
+            <span class="warn-inline">оружие не выбрано — приказ не утвердить</span>
+          <% } %>
+        </label>
+      </div>
+    <% } %>
+  </td>
+</tr>

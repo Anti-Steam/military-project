@@ -1,0 +1,212 @@
+<%- include('partials/header', { title }) %>
+
+<h1><%= post ? 'Изменение поста' : 'Новый пост' %></h1>
+
+<form method="post" action="<%= post ? '/posts/' + post.id : '/posts' %>" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <%# Подразделения в этой части нет: кто заступает на пост, задается
+      перечнем заступающих ниже. Два поля об одном расходились при первой
+      же правке. %>
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Вид наряда</span>
+      <select name="dutyTypeId" required>
+        <% dutyTypes.forEach((t) => { %>
+          <option value="<%= t.id %>"
+                  <%= (post ? post.duty_type_id === t.id
+                       : (typeof presetTypeId !== 'undefined' && presetTypeId === t.id)) ? 'selected' : '' %>>
+            <%= t.code %> — <%= t.name %>
+          </option>
+        <% }) %>
+      </select>
+      <% if (post) { %>
+        <span class="muted">
+          Пост можно перенести в другой вид наряда. Прошлые приказы от этого
+          не меняются — они хранят назначения. Утверждение будущих приказов
+          обоих видов снимется: состав нужно пересмотреть.
+        </span>
+      <% } %>
+    </label>
+  </div>
+
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Краткое обозначение</span>
+      <input type="text" name="shortName" value="<%= post ? (post.short_name || '') : '' %>"
+             placeholder="КДС, ДЧ — необязательно">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Наименование</span>
+      <input type="text" name="name" value="<%= post ? post.name : '' %>" required
+             placeholder="Дежурный по части">
+    </label>
+  </div>
+
+  <label class="field">Необходимый допуск к должности
+    <select name="requiredPermitTypeId"><option value="">Допуск к должности не требуется</option>
+      <% permitTypes.forEach(p=>{ %><option value="<%= p.id %>" <%= post && post.required_permit_type_id===p.id ? 'selected':'' %>><%= p.name %></option><% }) %>
+    </select>
+  </label>
+  <label class="field">Оружие на посту
+    <select name="requiredWeaponKind">
+      <option value="">Не выдается</option>
+      <option value="rifle" <%= post && post.required_weapon_kind==='rifle'?'selected':'' %>>Автомат</option>
+      <option value="pistol" <%= post && post.required_weapon_kind==='pistol'?'selected':'' %>>Пистолет</option>
+    </select>
+    <span class="muted">
+      Наличие своего оружия назначению не мешает: человеку без него при
+      назначении выбирают оружие другого, а приказ называет, за кем какое
+      закрепить.
+    </span>
+  </label>
+  <label class="field">
+    <span class="field-label">Заступление подряд</span>
+    <select name="allowConsecutive">
+      <option value="">Как у вида наряда</option>
+      <option value="yes" <%= post && post.allow_consecutive === true ? 'selected' : '' %>>
+        Можно — на этот пост допускается заступать сутки за сутками
+      </option>
+      <option value="no" <%= post && post.allow_consecutive === false ? 'selected' : '' %>>
+        Нельзя — отдых обязателен, даже если вид наряда разрешает
+      </option>
+    </select>
+    <span class="muted">
+      Снимает запрет по отсыпному <strong>от этого же поста</strong> и порог
+      очереди. Прочие запреты — допуски, отсутствие, занятость, оружие —
+      остаются.
+    </span>
+  </label>
+
+  <%
+    // Путь «1 рота · 1 взвод»: плоский список, а «1 взвод» есть у каждой роты.
+    const unitPath = (u) => u.path_name || u.short_name;
+    const queueRows = [...queueIds, ''];
+    const peopleRows = [...boundIds, ''];
+    const byUnit = new Map();
+    employees.forEach((e) => {
+      if (!byUnit.has(e.unit_id)) byUnit.set(e.unit_id, []);
+      byUnit.get(e.unit_id).push(e);
+    });
+    const groups = units.filter((u) => byUnit.has(u.id));
+  %>
+
+  <fieldset class="staffing">
+    <legend>Кто заступает на пост</legend>
+
+    <div class="field">
+      <span class="field-label">Подразделения — по порядку очереди</span>
+      <div class="staff-rows" id="unit-rows">
+        <% queueRows.forEach((unitId, i) => { %>
+          <div class="staff-row">
+            <span class="muted staff-num"><%= i + 1 %>.</span>
+            <select name="unitIds">
+              <option value="">— нет —</option>
+              <% units.forEach((u) => { %>
+                <option value="<%= u.id %>" <%= u.id === unitId ? 'selected' : '' %>><%= unitPath(u) %></option>
+              <% }) %>
+            </select>
+          </div>
+        <% }) %>
+      </div>
+      <button type="button" class="btn btn-link" data-add-row="unit-rows">+ ещё подразделение</button>
+      <span class="muted">
+        Пусто — пост общий, заступает вся часть. Одно — заступает всегда.
+        Несколько — по очереди, по одному заступлению каждое.
+      </span>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Очередь считается с</span>
+      <input type="date" name="rotationSince" value="<%= post && post.rotation_since || '' %>">
+      <span class="muted">
+        Нужно, только если подразделений несколько: с этих суток первое
+        заступление — первому в очереди. Не указано — с сегодняшних.
+      </span>
+    </label>
+
+    <div class="field">
+      <span class="field-label">Кто ходит на пост</span>
+      <div class="staff-rows" id="people-rows">
+        <% peopleRows.forEach((employeeId, i) => { %>
+          <div class="staff-row">
+            <span class="muted staff-num"><%= i + 1 %>.</span>
+            <select name="employeeIds">
+              <option value="">— нет —</option>
+              <% groups.forEach((u) => { %>
+                <optgroup label="<%= unitPath(u) %>">
+                  <% byUnit.get(u.id).forEach((e) => { %>
+                    <option value="<%= e.id %>" <%= e.id === employeeId ? 'selected' : '' %>><%= e.short_name %></option>
+                  <% }) %>
+                </optgroup>
+              <% }) %>
+            </select>
+          </div>
+        <% }) %>
+      </div>
+      <button type="button" class="btn btn-link" data-add-row="people-rows">+ ещё человек</button>
+      <span class="muted">
+        Пусто — предлагаются все допущенные из заступающих подразделений.
+        Заполнено — система подбирает <strong>только этих людей</strong>;
+        допуск, отсутствие, отдых и оружие проверяются по-прежнему.
+        Человек должен быть из подразделения очереди.
+      </span>
+    </div>
+  </fieldset>
+
+  <% if (post) { %>
+    <label class="check-field">
+      <input type="checkbox" name="isActive" <%= post.is_active ? 'checked' : '' %>>
+      <span>Применяется</span>
+    </label>
+    <p class="muted">
+      Снятый с применения пост перестает предлагаться в новых нарядах.
+      Наряды прошлых периодов сохраняются без изменений.
+    </p>
+  <% } %>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="/duty-types<%= post ? '?open=' + post.duty_type_id + '#type-' + post.duty_type_id : '' %>" class="btn">Отмена</a>
+  </div>
+</form>
+
+<script>
+  // «+ ещё»: копия последней строки с пустым выбором. Лишние пустые строки
+  // безвредны — сервер их пропускает.
+  document.querySelectorAll('[data-add-row]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const box = document.getElementById(button.dataset.addRow);
+      const row = box.lastElementChild.cloneNode(true);
+      row.querySelector('select').value = '';
+      row.querySelector('.staff-num').textContent = (box.children.length + 1) + '.';
+      box.appendChild(row);
+    });
+  });
+</script>
+
+<% if (post) { %>
+  <h2>Удаление поста</h2>
+
+  <% if (usage.assignments > 0) { %>
+    <p class="warn">
+      Пост стоял в нарядах: назначений — <%= usage.assignments %>. Такой пост
+      не удаляется, а снимается с применения — снимите галочку «Применяется»
+      выше. Приказы прошлых периодов должны оставаться читаемыми.
+    </p>
+  <% } else { %>
+    <p class="muted">
+      Пост нигде не использован, и его можно удалить — вместе с его
+      настройками: очередью подразделений, точечными закреплениями и весами.
+      После удаления откроется перечень постов. Действие необратимо.
+    </p>
+    <form method="post" action="/posts/<%= post.id %>/delete"
+          onsubmit="return confirm('Удалить пост «<%= post.name %>»? Действие необратимо.')">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button type="submit" class="btn">Удалить пост</button>
+    </form>
+  <% } %>
+<% } %>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,186 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const pg = template.page;
+  const yesNo = (name, value) => `<select name="${name}"><option value="no"${value ? '' : ' selected'}>нет</option><option value="yes"${value ? ' selected' : ''}>да</option></select>`;
+  const pick = (name, map, value) => `<select name="${name}">${Object.entries(map).map(([k, label]) =>
+    `<option value="${k}"${k === value ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  const esc = (x) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  // Строка блока: одна разметка для имеющихся блоков и для заготовки «+ блок».
+  const blockRow = (b, i) => `
+    <div class="order-block" data-sort-id="${i}">
+      <div class="order-block-head">
+        <span class="drag-handle" draggable="true" title="Перетащите, чтобы изменить порядок">⠿</span>
+        <label>Блок ${pick('blockKind', options.kinds, b.kind)}</label>
+        <label>выравнивание ${pick('blockAlign', options.aligns, b.align)}</label>
+        <label>отступ, см <input type="text" name="blockIndent" value="${b.indent}" size="3"></label>
+        <label>интервал перед, пт <input type="text" name="blockSpace" value="${b.spaceBefore}" size="3"></label>
+        <label>жирный ${yesNo('blockBold', b.bold)}</label>
+        <label>пункт приказа ${yesNo('blockNumbered', b.numbered)}</label>
+        <input type="hidden" name="blockFormat" value="list">
+        <button type="button" class="btn btn-link btn-danger" data-remove-block>убрать</button>
+      </div>
+      <div class="only-roster block-posts">
+        <span class="muted">Посты блока (ничего не выбрано — все остальные посты):</span>
+        ${posts.map((post) => `<label class="check-field"><input type="checkbox" data-post="${post.id}"${(b.posts || []).includes(post.id) ? ' checked' : ''}> ${esc(post.short_name || post.name)}</label>`).join('')}
+        <input type="hidden" name="blockPosts" value="${(b.posts || []).join(',')}">
+      </div>
+      <textarea name="blockText" rows="2" placeholder="Текст блока; для состава и оружия — строка-заголовок">${esc(b.text)}</textarea>
+      <input type="text" name="blockRight" value="${esc(b.right)}" class="only-sign"
+             placeholder="Справа в подписи: {{командир}}">
+    </div>`;
+%>
+
+<div class="page-head">
+  <h1>Приказ: <%= type.code %> — <%= type.name %></h1>
+  <a class="btn" href="/duty-types?open=<%= type.id %>#type-<%= type.id %>">К нарядам</a>
+</div>
+
+<p class="muted">
+  Шаблон приказа этого вида наряда. Блоки идут в приказе в этом порядке
+  (перетаскивание за «⠿»). <strong>Текст</strong> и <strong>подпись</strong>
+  пишутся шаблоном; <strong>состав наряда</strong> и <strong>оружие</strong>
+  заполняет система — у них задается только строка-заголовок и оформление.
+  Состав идет текстом, по строке на пост: «Дежурный по части — капитан
+  Иванов Иван Иванович;». Чтобы разделить наряды одного приказа на блоки
+  (например, дежурная служба и КПП), заведите несколько блоков состава и
+  отметьте в каждом его посты; блок без отметок берет все остальные.
+  «Пункт приказа» — сквозная нумерация 1., 2., …; в приказе на несколько
+  суток (выходные, праздники) состав идет по суткам подпунктами 1.1, 1.2, а
+  закрепление оружия — по суткам.
+</p>
+
+<p>
+  <% if (version > 0) { %>
+    Действует версия № <strong><%= version %></strong><%= custom ? '' : ' (шаблон по умолчанию)' %>.
+  <% } else { %>
+    Действует <strong>шаблон по умолчанию</strong> — изменений еще не было.
+  <% } %>
+  Утвержденные приказы хранят свою версию: правка шаблона их не меняет.
+  <a class="btn" href="/duty-types/<%= type.id %>/order/preview" target="_blank">Предпросмотр</a>
+  <a class="btn" href="/duty-types/<%= type.id %>/order/preview?days=3" target="_blank">Предпросмотр на 3 суток</a>
+</p>
+
+<form method="post" action="/duty-types/<%= type.id %>/order" class="form" id="order-template-form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <h2>Лист</h2>
+  <div class="row">
+    <label class="field"><span class="field-label">Верхнее поле, мм</span>
+      <input type="text" name="marginTop" value="<%= pg.marginTop %>" size="4"></label>
+    <label class="field"><span class="field-label">Нижнее, мм</span>
+      <input type="text" name="marginBottom" value="<%= pg.marginBottom %>" size="4"></label>
+    <label class="field"><span class="field-label">Левое, мм</span>
+      <input type="text" name="marginLeft" value="<%= pg.marginLeft %>" size="4"></label>
+    <label class="field"><span class="field-label">Правое, мм</span>
+      <input type="text" name="marginRight" value="<%= pg.marginRight %>" size="4"></label>
+    <label class="field"><span class="field-label">Кегль, пт</span>
+      <input type="text" name="fontSize" value="<%= pg.fontSize %>" size="4"></label>
+    <label class="field"><span class="field-label">Межстрочный</span>
+      <input type="text" name="lineHeight" value="<%= pg.lineHeight %>" size="4"></label>
+  </div>
+  <p class="muted">Шрифт — Times New Roman (на Astra Linux — метрически равный PT Astra Serif / Liberation Serif).</p>
+
+  <h2>Блоки</h2>
+  <div id="order-blocks" data-sortable="">
+    <% template.blocks.forEach((b, i) => { %><%- blockRow(b, i) %><% }) %>
+  </div>
+  <button type="button" class="btn" id="add-block">+ блок</button>
+  <template id="block-template"><%- blockRow({ kind: 'text', text: '', right: '', align: 'justify',
+    indent: 1.25, spaceBefore: 0, bold: false, numbered: true, format: 'list', posts: [] }, 'new') %></template>
+
+  <details class="placeholders">
+    <summary>Подстановки в тексте</summary>
+    <table class="table">
+      <% Object.entries(options.placeholders).forEach(([key, what]) => { %>
+        <tr><td><code><%= key %></code></td><td class="muted"><%= what %></td></tr>
+      <% }) %>
+    </table>
+  </details>
+
+  <label class="field">
+    <span class="field-label">Основание изменения</span>
+    <input type="text" name="reason" required maxlength="500"
+           placeholder="Например: приведено к образцу приказа командира части">
+    <span class="muted">Обязательно: каждое изменение хранится версией — кто, когда и почему.</span>
+  </label>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить новую версию</button>
+    <button type="submit" class="btn" name="action" value="reset"
+            onclick="return confirm('Вернуть шаблон по умолчанию? Это тоже будет новая версия.')">
+      Вернуть шаблон по умолчанию
+    </button>
+  </div>
+</form>
+
+<h2>История шаблона</h2>
+<% if (versions.length === 0) { %>
+  <p class="muted">Изменений не было.</p>
+<% } else { %>
+  <table class="table">
+    <thead><tr><th>Версия</th><th>Когда</th><th>Кто</th><th>Основание</th><th></th></tr></thead>
+    <tbody>
+      <% versions.forEach((x, i) => { %>
+        <tr>
+          <td>№ <%= x.version %><%= x.template === null ? ' (по умолчанию)' : '' %></td>
+          <td><%= fmtDateTime(x.created_at) %></td>
+          <td><%= x.author || '—' %></td>
+          <td><%= x.reason %></td>
+          <td>
+            <% if (i === 0) { %>
+              <span class="tag">действует</span>
+            <% } else { %>
+              <form method="post" action="/duty-types/<%= type.id %>/order" class="form-inline">
+                <input type="hidden" name="_csrf" value="<%= csrf %>">
+                <input type="hidden" name="restore" value="<%= x.version %>">
+                <input type="text" name="reason" required placeholder="основание возврата" size="18">
+                <button type="submit" class="btn btn-link">вернуть эту версию</button>
+              </form>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<script>
+  (function () {
+    var box = document.getElementById('order-blocks');
+
+    // Поля, нужные только части блоков: вид состава — у состава, правая
+    // часть — у подписи.
+    function refresh(block) {
+      var kind = block.querySelector('[name="blockKind"]').value;
+      block.querySelector('.only-roster').hidden = kind !== 'roster';
+      block.querySelector('.only-sign').hidden = kind !== 'signature';
+    }
+    Array.prototype.forEach.call(box.children, refresh);
+
+    box.addEventListener('change', function (event) {
+      if (event.target.name === 'blockKind') refresh(event.target.closest('.order-block'));
+      // Отмеченные посты блока — в скрытое поле: форма шлет их строкой.
+      if (event.target.dataset.post) {
+        var holder = event.target.closest('.block-posts');
+        holder.querySelector('[name="blockPosts"]').value = Array.prototype.map.call(
+          holder.querySelectorAll('[data-post]:checked'), function (x) { return x.dataset.post; }).join(',');
+      }
+    });
+    box.addEventListener('click', function (event) {
+      if (!event.target.matches('[data-remove-block]')) return;
+      event.target.closest('.order-block').remove();
+    });
+
+    var next = 1000;
+    document.getElementById('add-block').addEventListener('click', function () {
+      var fresh = document.getElementById('block-template').content.firstElementChild.cloneNode(true);
+      fresh.dataset.sortId = String(next++);
+      box.appendChild(fresh);
+      refresh(fresh);
+      fresh.querySelector('textarea').focus();
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,145 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const personLabel = (p) => `${p.short_name}${p.first_name ? ' ' + p.first_name[0] + '.' : ''}${p.middle_name ? p.middle_name[0] + '.' : ''} — ${p.unit_short || 'за штатом'}`;
+  const weaponLabel = (w) => `${w.name} № ${w.serial_number}`;
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const weaponById = new Map(weapons.map((w) => [w.id, w]));
+  const absenceLabel = profile.absence_code ? ((dict.absences.find((a) => a.id === profile.absence_code) || {}).label || profile.absence_code) : null;
+  const permitLabel = profile.permit_type_id ? ((dict.permits.find((t) => t.id === profile.permit_type_id) || {}).label || '') : null;
+  const actions = [absenceLabel ? `отметить отсутствующим («${absenceLabel}»)` : null,
+    profile.reserve_weapons ? 'занять оружие на срок' : null,
+    permitLabel ? `выдать допуск «${permitLabel}»` : null].filter(Boolean);
+%>
+
+<div class="page-head">
+  <h1>Разбор приказа № <%= order.number %></h1>
+  <a class="btn" href="/permits/orders/<%= order.id %>">К приказу</a>
+  <a class="btn" href="/orders/parse?open=profile-<%= profile.id %>#profile-<%= profile.id %>">Вид приказа</a>
+</div>
+
+<p class="muted">
+  Система нашла в приказе людей<%= profile.reserve_weapons ? ', сроки и номера оружия' : ' и сроки' %>.
+  Ничего не вносится само: проверьте строки, поправьте человека, даты<%= profile.reserve_weapons ? ', оружие' : '' %>,
+  добавьте упущенное и нажмите «Принять отмеченные».
+</p>
+
+<dl class="props">
+  <dt>Вид</dt><dd><%= profile.name %></dd>
+  <dt>С каждым человеком</dt><dd><%= actions.join('; ') %></dd>
+  <dt>По заголовку</dt>
+  <dd>
+    <% if (matchedBy.length) { %>узнан <span class="muted">(по: <%= matchedBy.join(', ') %>)</span>
+    <% } else if (profile.header_phrases.length) { %><span class="warn-inline">слов заголовка вида нет в приказе — проверьте, тот ли это вид</span>
+    <% } else { %><span class="muted">слова заголовка у вида не заданы</span><% } %>
+  </dd>
+  <dt>Прочитано</dt>
+  <dd>
+    <%= blocks.length %> абзацев и таблиц
+    <form method="get" action="/permits/orders/<%= order.id %>/parse" class="form-inline">
+      <input type="hidden" name="again" value="1">
+      <button type="submit" class="btn btn-link">прочитать файл заново</button>
+    </form>
+  </dd>
+</dl>
+
+<% if (error) { %><p class="warn"><%= error %></p><% } %>
+<% if (applied !== null) { %><p class="ok-note">Принято строк: <%= applied %>.</p><% } %>
+<% if (failed) { %><p class="warn">Не принято: <%= failed %></p><% } %>
+
+<form method="post" action="/permits/orders/<%= order.id %>/parse/apply" class="form parse-form" id="parse-form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <input type="hidden" name="count" value="<%= facts.length %>" data-count>
+  <table class="table parse-table">
+    <thead>
+      <tr>
+        <th>Принять</th><th>Кто</th><% if (profile.reserve_weapons) { %><th>Оружие</th><% } %>
+        <th>С</th><th>По</th><th>Где в приказе</th>
+      </tr>
+    </thead>
+    <tbody data-rows>
+      <% facts.forEach((f, i) => { %>
+        <% const person = f.employeeId ? byId.get(f.employeeId) : null; %>
+        <% const weapon = f.weaponId ? weaponById.get(f.weaponId) : null; %>
+        <tr class="<%= f.exists ? 'row-inactive' : '' %>">
+          <td>
+            <input type="checkbox" name="accept_<%= i %>" <%= !f.exists && f.employeeId && f.dateFrom ? 'checked' : '' %>>
+            <% if (f.exists) { %><span class="tag">уже внесено</span><% } %>
+          </td>
+          <td>
+            <select name="employee_<%= i %>" data-options="people">
+              <option value="">— выбрать —</option>
+              <% if (person) { %><option value="<%= person.id %>" selected><%= personLabel(person) %></option><% } %>
+            </select>
+            <% if (!f.employeeId && f.candidates.length > 1) { %>
+              <div class="muted">«<%= f.personText %>» — несколько: <%= f.candidates.map((id) => byId.get(id) ? byId.get(id).short_name : id).join(', ') %></div>
+            <% } %>
+          </td>
+          <% if (profile.reserve_weapons) { %>
+            <td>
+              <select name="weapon_<%= i %>" data-options="weapons">
+                <option value="">— без оружия —</option>
+                <% if (weapon) { %><option value="<%= weapon.id %>" selected><%= weaponLabel(weapon) %></option><% } %>
+              </select>
+            </td>
+          <% } %>
+          <td><input type="date" name="from_<%= i %>" value="<%= f.dateFrom || '' %>"></td>
+          <td><input type="date" name="to_<%= i %>" value="<%= f.dateTo || '' %>"></td>
+          <td class="muted parse-snippet" title="<%= f.snippet %>"><%= f.where %>: <%= f.snippet.length > 90 ? f.snippet.slice(0, 87) + '…' : f.snippet %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <template id="parse-row">
+    <tr>
+      <td><input type="checkbox" name="accept___N__" checked></td>
+      <td><select name="employee___N__" data-options="people"><option value="">— выбрать —</option></select></td>
+      <% if (profile.reserve_weapons) { %>
+        <td><select name="weapon___N__" data-options="weapons"><option value="">— без оружия —</option></select></td>
+      <% } %>
+      <td><input type="date" name="from___N__"></td><td><input type="date" name="to___N__"></td>
+      <td class="muted">вручную</td>
+    </tr>
+  </template>
+
+  <div class="actions">
+    <button type="button" class="btn" data-add-row>+ строка вручную</button>
+    <button type="submit" class="btn btn-primary">Принять отмеченные</button>
+  </div>
+</form>
+
+<% if (unknown.length > 0) { %>
+  <h2>Не узнаны в личном составе</h2>
+  <p class="muted">Похожи на людей, но таких в списках нет (или написано иначе).</p>
+  <ul>
+    <% unknown.forEach((u) => { %><li><strong><%= u.name %></strong> <span class="muted">— <%= u.where %></span></li><% }) %>
+  </ul>
+<% } %>
+
+<% if (unparsed.length > 0) { %>
+  <h2>Не понятно, на какой срок</h2>
+  <p class="muted">Здесь есть люди, но срока нет ни в строке, ни выше. Укажите даты в строках вручную.</p>
+  <% unparsed.forEach((u) => { %>
+    <div class="parse-unparsed"><div class="muted"><%= u.where %>:</div><div><%= u.text %></div></div>
+  <% }) %>
+<% } %>
+
+<script>
+  window.OPTION_LISTS = Object.assign(window.OPTION_LISTS || {}, {
+    people: <%- JSON.stringify(people.map((p) => ({ id: p.id, label: personLabel(p) }))).replace(/</g, '\\u003c') %>,
+    weapons: <%- JSON.stringify(weapons.map((w) => ({ id: w.id, label: weaponLabel(w) }))).replace(/</g, '\\u003c') %>
+  });
+  (function () {
+    var form = document.getElementById('parse-form');
+    var rows = form.querySelector('[data-rows]');
+    var count = form.querySelector('[data-count]');
+    form.querySelector('[data-add-row]').addEventListener('click', function () {
+      var n = Number(count.value);
+      rows.insertAdjacentHTML('beforeend', document.getElementById('parse-row').innerHTML.replace(/__N__/g, n));
+      count.value = n + 1;
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,607 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1><%= employee.rank_name || '' %> <%= employee.full_name %></h1>
+  <a class="btn" href="/people">К личному составу</a>
+</div>
+
+<%# Разделы карточки — вкладками, как виды нарядов в графике: открыт один,
+    ссылка с #раздел открывает его сразу. %>
+<nav class="tabs card-tabs">
+  <a class="tab" href="#data" data-tab-link="data">Данные</a>
+  <a class="tab" href="#duty" data-tab-link="duty">Наряды</a>
+  <a class="tab" href="#weapons" data-tab-link="weapons">Оружие</a>
+  <a class="tab" href="#permits" data-tab-link="permits">Допуски</a>
+  <a class="tab" href="#absences" data-tab-link="absences">Отсутствия</a>
+</nav>
+
+<section class="card-tab" id="data" data-tab="data">
+  <% if (!employee.is_active) { %>
+    <p class="warn">
+      Исключен из списков<%= employee.excluded_on ? ' ' + fmtDay(employee.excluded_on) : '' %>:
+      <%= employee.exclusion_reason || '—' %>. История нарядов, допусков и оружия сохранена.
+    </p>
+  <% } %>
+
+<dl class="props">
+  <dt>Подразделение</dt>
+  <dd>
+    <% if (unitPath.length === 0) { %>
+      <span class="tag"><%= employee.is_active ? 'за штатом' : 'исключен из списков' %></span>
+    <% } %>
+    <% unitPath.forEach((u, i) => { %><%= i > 0 ? ' → ' : '' %><%= u.short_name %><% }) %>
+  </dd>
+
+  <dt>Должность</dt>
+  <dd>
+    <%= employee.position || '—' %>
+    <% if (canTransfer) { %>
+      <details class="card-transfer">
+        <summary>перевести</summary>
+        <form method="post" action="/personnel/transfer" class="form-inline">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <input type="hidden" name="employeeId" value="<%= employee.id %>">
+          <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+          <% if (vacancies.length === 0) { %>
+            <span class="muted">Вакантных должностей нет — их заводит кадровик во вкладке «Подразделения».</span>
+          <% } else { %>
+            <%# Подразделение выбирается по уровням: рота → взвод → отделение;
+                остановиться можно на любом. Должности — вакантные выбранного. %>
+            <span class="unit-steps" data-unit-steps></span>
+            <select name="positionId" required data-vacancy-select>
+              <option value="">— сначала подразделение —</option>
+            </select>
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirm('Перевести <%= employee.short_name %> на выбранную должность? Прежняя станет вакантной.')">Перевести</button>
+            <script>
+              (function () {
+                var UNITS = <%- JSON.stringify(transferUnits).replace(/</g, '\\u003c') %>;
+                var VACANT = <%- JSON.stringify(vacancies.map((p) => ({ id: p.id, unit: p.unit_id, title: p.title }))).replace(/</g, '\\u003c') %>;
+                var CURRENT = <%- JSON.stringify(employee.position || '') %>;
+                var steps = document.querySelector('[data-unit-steps]');
+                var positions = document.querySelector('[data-vacancy-select]');
+                var ids = UNITS.map(function (u) { return u.id; });
+                var children = function (id) {
+                  return UNITS.filter(function (u) { return id === null ? ids.indexOf(u.parent) === -1 : u.parent === id; });
+                };
+
+                function showVacancies(unitId) {
+                  positions.innerHTML = '';
+                  var list = VACANT.filter(function (v) { return v.unit === unitId; });
+                  positions.add(new Option(list.length ? '— должность —' : '— вакансий нет —', ''));
+                  list.forEach(function (v) { positions.add(new Option(v.title, v.id, false, v.title === CURRENT)); });
+                }
+
+                // Уровень: список подразделений; выбор открывает следующий
+                // уровень (если есть вложенные) и вакансии выбранного.
+                function level(parentId, depth) {
+                  while (steps.children.length > depth) steps.removeChild(steps.lastChild);
+                  var items = children(parentId);
+                  if (items.length === 0) return;
+                  var select = document.createElement('select');
+                  select.add(new Option(depth === 0 ? '— подразделение —' : '— вложенное (необязательно) —', ''));
+                  items.forEach(function (u) { select.add(new Option(u.name, u.id)); });
+                  select.addEventListener('change', function () {
+                    var chosen = select.value ? Number(select.value) : null;
+                    while (steps.children.length > depth + 1) steps.removeChild(steps.lastChild);
+                    if (chosen === null) { showVacancies(parentId); return; }
+                    level(chosen, depth + 1);
+                    showVacancies(chosen);
+                  });
+                  steps.appendChild(select);
+                }
+                level(null, 0);
+              })();
+            </script>
+          <% } %>
+        </form>
+      </details>
+    <% } %>
+  </dd>
+
+  <dt>Личный номер</dt>
+  <dd><%= employee.personnel_number || '—' %></dd>
+
+  <dt>Телефон</dt>
+  <dd><%= employee.phone || '—' %></dd>
+
+  <dt>Состояние на <%= fmtDay(onDate) %></dt>
+  <dd>
+    <% if (absences.some((a) => a.date_from <= onDate && a.date_to >= onDate)) { %>
+      <% const now = absences.find((a) => a.date_from <= onDate && a.date_to >= onDate); %>
+      <span class="warn-inline"><%= now.reason %> <%= until(now.date_to) %></span>
+    <% } else if (onDuty) { %>
+      <span class="tag tag-duty">в наряде: <%= onDuty %></span>
+    <% } else if (resting) { %>
+      <span class="tag tag-rest">отсыпной после: <%= resting %></span>
+    <% } else { %>
+      <span class="muted">налицо</span>
+      <% if (justRested) { %>
+        <span class="tag tag-just-rest">● вышел из отсыпного (<%= justRested %>)</span>
+      <% } %>
+    <% } %>
+  </dd>
+</dl>
+
+  <% if (can('audit.view')) { %>
+    <p><a href="/audit?employee=<%= employee.id %>">История изменений</a>
+      <span class="muted">— все изменения по человеку: данные, должность, отсутствия, оружие, наряды.</span></p>
+  <% } %>
+
+  <% if (canStaff) { %>
+    <div class="actions">
+      <% if (employee.is_active) { %>
+        <button type="button" class="btn" data-edit-person>Изменить</button>
+      <% } %>
+    </div>
+
+    <%# Правка данных — спрятана, пока не нажато «Изменить»; после сохранения
+        снова только чтение. Подразделение и должность — переводом. %>
+    <form method="post" action="/personnel/<%= employee.id %>/data" class="form person-edit" hidden>
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <div class="row">
+        <label class="field"><span class="field-label">Фамилия</span>
+          <input name="lastName" value="<%= employee.last_name %>" required maxlength="60"></label>
+        <label class="field"><span class="field-label">Имя</span>
+          <input name="firstName" value="<%= employee.first_name %>" required maxlength="60"></label>
+        <label class="field"><span class="field-label">Отчество</span>
+          <input name="middleName" value="<%= employee.middle_name || '' %>" maxlength="60"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span class="field-label">Воинское звание</span>
+          <select name="rankId">
+            <option value="">— без звания —</option>
+            <% ranks.forEach((r) => { %><option value="<%= r.id %>" <%= r.id === employee.rank_id ? 'selected' : '' %>><%= r.name %></option><% }) %>
+          </select></label>
+        <label class="field"><span class="field-label">Личный номер</span>
+          <input name="personnelNumber" value="<%= employee.personnel_number || '' %>" maxlength="30"></label>
+        <label class="field"><span class="field-label">Телефон</span>
+          <input name="phone" value="<%= employee.phone || '' %>" maxlength="30"></label>
+      </div>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+        <button type="button" class="btn" data-edit-person>Отмена</button>
+      </div>
+    </form>
+
+    <% if (employee.is_active) { %>
+      <details class="exclude-box">
+        <summary class="btn btn-link btn-danger">Исключить из списков</summary>
+        <form method="post" action="/personnel/<%= employee.id %>/exclude" class="form-inline"
+              onsubmit="return confirm('Исключить <%= employee.short_name %> из списков? Должность освободится, оружие открепится, будущие наряды снимутся.')">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <input type="text" name="reason" required size="36" placeholder="основание: приказ №, дата (увольнение, перевод)">
+          <button type="submit" class="btn btn-danger">Исключить</button>
+        </form>
+      </details>
+    <% } else { %>
+      <form method="post" action="/personnel/<%= employee.id %>/restore" class="form-inline">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button type="submit" class="btn">Вернуть в списки (за штат)</button>
+      </form>
+    <% } %>
+  <% } %>
+</section>
+
+<section class="card-tab" id="duty" data-tab="duty" hidden>
+<h2>Очередь заступления</h2>
+
+<p class="muted">
+  Счет ведется тем же кодом, что и подбор состава, поэтому здесь видно ровно
+  то, чем руководствуется система, — на <%= fmtDay(queueState.onDate) %>.
+  Первым в наряд предлагается тот, у кого очередь выше. Единица очереди —
+  примерно одни сутки простоя. Параметры расчета — на странице «Подбор».
+</p>
+
+<table class="table queue-explain">
+  <tbody>
+    <tr>
+      <td>Последний наряд сдан
+        <div class="muted">Сутки сдачи последнего наряда — от них считается простой.</div></td>
+      <td>
+        <% if (queueState.lastDate) { %>
+          <%= fmtDay(queueState.lastDate) %>
+        <% } else { %>
+          <span class="muted">не заступал</span>
+        <% } %>
+      </td>
+    </tr>
+    <tr>
+      <td>Готовность — сутки простоя, потолок <%= queueState.settings['queue.ready_max_days'] %>
+        <div class="muted">Сколько суток прошло после сдачи: каждые сутки +1, но не больше потолка
+          (иначе вернувшийся из отпуска вытеснял бы всех). Ни разу не заступавший получает потолок
+          <% if (queueState.settings['queue.unassigned_bonus']) { %>и надбавку +<%= queueState.settings['queue.unassigned_bonus'] %><% } %>
+          сразу.</div></td>
+      <td><strong><%= queueState.queue.readiness %></strong></td>
+    </tr>
+    <tr>
+      <td>
+        Нагрузка за 30 суток — <%= queueState.duties %> наряд(ов),
+        с коэффициентом <%= queueState.settings['queue.workload_factor'] %>
+        <div class="muted">Сумма весов нарядов с <%= fmtDay(queueState.workloadFrom) %>: вес вида наряда,
+          в выходной или праздник ×1,5, плюс 0,5 за сутки отсыпного — здесь <%= queueState.workloadRaw %>.
+          Вычитается нагрузка × <%= queueState.settings['queue.workload_factor'] %>: из двух одинаково
+          давно не ходивших первым предложат того, кто ходит реже.</div>
+      </td>
+      <td>− <%= queueState.queue.workload %></td>
+    </tr>
+    <tr>
+      <td>Очередь без поправок к посту
+        <div class="muted">Готовность минус нагрузка. На конкретном посту к ней прибавляются вес звания
+          и личная поправка (ниже, «Личные поправки к постам»).</div></td>
+      <td><strong><%= queueState.queue.value %></strong></td>
+    </tr>
+    <tr>
+      <td>Порог — сутки отдыха после сдачи
+        <div class="muted">Не прошедший порог в списках кандидатов не показывается вовсе (сейчас порог —
+          <%= queueState.settings['queue.min_days_off'] %> сут.). Остальное — допуски, отсутствия,
+          отсыпной, занятость — проверяется отдельно на конкретный наряд.</div></td>
+      <td>
+        <% if (queueState.ready) { %>
+          <span class="muted">пройден: простой
+            <%= queueState.queue.readiness %> ≥ <%= queueState.settings['queue.min_days_off'] %></span>
+        <% } else { %>
+          <span class="warn-inline">не пройден: сутки отдыха не прошли, в списках не показывается</span>
+        <% } %>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Личные поправки к постам</h2>
+
+<p class="muted">
+  Поправка — исключение <strong>для этого человека на этом посту</strong>:
+  прибавляется к очереди и меняет только порядок предложения. Пустое поле
+  снимает поправку. Запреты весами не задаются: допуск, отсутствие, отсыпной и
+  занятость отсекают человека до всякого счета, и никакая поправка его не
+  вернет. «Вес звания» показан для сравнения — это массовое правило поста для
+  звания <%= employee.rank_short || '—' %>, правится на странице «Подбор».
+</p>
+<ul class="muted">
+  <li><strong>Вес звания</strong> — прибавка всем с этим званием на этом посту (задается на «Подборе»).</li>
+  <li><strong>Личная поправка</strong> — прибавка только этому человеку на этом посту, поверх веса звания.
+    +2 — предлагать, как будто он не ходил на двое суток дольше; −5 — реже. Можно дробное (1,5), не больше
+    100 по модулю. Пустое поле — поправки нет.</li>
+  <li><strong>Основание</strong> — почему поправка введена (рапорт, указание командира): видно всем, кто
+    будет разбираться потом, и на странице «Подбор».</li>
+  <li>Строки бледным — к посту нет допуска: поправка там ни на что не влияет, человек туда не попадет.</li>
+</ul>
+
+<% if (!canManageQueue) { %>
+  <p class="muted">Правка поправок доступна при праве «Настройка весов и подбора».</p>
+<% } %>
+
+<form method="post" action="/personnel/<%= employee.id %>/post-weights" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <% groups.forEach((group, gi) => { %>
+    <details class="unit-node" <%= gi === 0 ? 'open' : '' %>>
+      <summary>
+        <span class="tag"><%= group.code %></span>
+        <span class="unit-name"><%= group.name %></span>
+        <% const own = group.posts.filter((p) => p.weight !== ''); %>
+        <span class="muted">
+          постов <%= group.posts.length %><% if (own.length > 0) { %> · поправок <%= own.length %><% } %>
+        </span>
+      </summary>
+
+      <div class="unit-body">
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="col-post">Пост</th>
+              <th>Подразделение</th>
+              <th>Вес звания</th>
+              <th>Личная поправка</th>
+              <th>Основание</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% group.posts.forEach((post) => { %>
+              <tr class="<%= post.permitted ? '' : 'row-inactive' %>">
+                <td>
+                  <%= post.name %>
+                  <% if (!post.permitted) { %>
+                    <span class="muted">— допуска нет</span>
+                  <% } %>
+                </td>
+                <td class="muted"><%= post.unit || '— общий —' %></td>
+                <td class="muted"><%= post.rankWeight === null ? '—' : post.rankWeight %></td>
+                <td>
+                  <input type="text" name="weight_<%= post.id %>" size="3"
+                         value="<%= post.weight %>" <%= canManageQueue ? '' : 'disabled' %>>
+                </td>
+                <td>
+                  <input type="text" name="note_<%= post.id %>" size="32"
+                         value="<%= post.note || '' %>" placeholder="основание"
+                         <%= canManageQueue ? '' : 'disabled' %>>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  <% }) %>
+
+  <% if (canManageQueue) { %>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Сохранить поправки</button>
+      <a class="btn" href="/personnel/<%= employee.id %>">Отмена</a>
+    </div>
+  <% } %>
+</form>
+
+</section>
+
+<section class="card-tab" id="weapons" data-tab="weapons" hidden>
+<h2>Оружие</h2>
+
+<p class="muted">
+  Оружие, которое числится за человеком: закрепленное за ним и — у
+  командира — незакрепленное оружие его подразделения; а также полученное на
+  наряд. Закрепляют и перемещают во вкладке <a href="/weapons">«Оружие»</a>.
+</p>
+
+<% if (weapons.length === 0) { %>
+  <p class="muted">За человеком оружие не числится.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr><th>Оружие</th><th>Заводской номер</th><th>Вид</th><th>Основание</th></tr>
+    </thead>
+    <tbody>
+      <% weapons.forEach((w) => { %>
+        <%
+          const lentAway = w.held && w.loan_id && w.loan_to !== employee.id;
+          const lentToHim = !w.held && w.loan_id;
+        %>
+        <tr class="<%= w.is_active ? '' : 'row-inactive' %>">
+          <td><%= w.name %></td>
+          <td><%= w.serial_number %></td>
+          <td class="muted"><%= w.kind === 'rifle' ? 'автомат' : 'пистолет' %></td>
+          <td>
+            <% if (w.own) { %>
+              <span class="tag">закреплено</span>
+            <% } else if (w.held) { %>
+              <span class="tag">за командиром подразделения</span>
+            <% } %>
+            <% if (lentAway) { %>
+              <span class="warn-inline">выдано <%= w.loan_holder %> до <%= w.loan_to_at %></span>
+            <% } else if (lentToHim) { %>
+              <span class="tag tag-duty">на наряд</span>
+              <span class="muted"><%= w.loan_from %> — <%= w.loan_to_at %><%= w.loan_reason ? ' · ' + w.loan_reason : '' %></span>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+</section>
+
+<section class="card-tab" id="permits" data-tab="permits" hidden>
+<h2>Допуски</h2>
+
+<p class="muted">
+  Каждый допуск опирается на ПРИКАЗ: по ссылке открывается сам приказ, а не
+  только его номер. Допуски, заведенные до реестра приказов, показывают старое
+  основание строкой.
+</p>
+
+<% if (permits.length === 0) { %>
+  <p class="muted">Допусков не оформлено.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Допуск</th>
+        <th>Приказ</th>
+        <th>Оформлен</th>
+        <th>Действует до</th>
+        <th>Состояние</th>
+        <% if (canManagePermits) { %><th></th><% } %>
+      </tr>
+    </thead>
+    <tbody>
+      <% permits.forEach((p) => { %>
+        <tr class="<%= p.valid ? '' : 'row-inactive' %>">
+          <td><%= p.name %> <span class="muted">(<%= p.code %>)</span></td>
+          <td>
+            <% if (p.order_id) { %>
+              <a href="/permits/orders/<%= p.order_id %>">№ <%= p.order_number %></a>
+              <span class="muted">от <%= fmtDay(p.order_date) %></span>
+              <% if (p.order_has_pdf) { %>
+                · <a href="/permits/orders/<%= p.order_id %>/pdf" target="_blank">PDF</a>
+              <% } %>
+            <% } else { %>
+              <span class="muted"><%= p.document_ref || '— основание не указано —' %></span>
+            <% } %>
+          </td>
+          <td><%= fmtDay(p.issued_at) %></td>
+          <td><%= p.expires_at ? fmtDay(p.expires_at) : 'бессрочно' %></td>
+          <td>
+            <% if (p.valid) { %>
+              <span class="muted">действует</span>
+            <% } else if (p.status !== 'active') { %>
+              <span class="warn-inline"><%= p.status === 'suspended' ? 'приостановлен' : 'отозван' %></span>
+            <% } else { %>
+              <span class="warn-inline">срок истек</span>
+            <% } %>
+          </td>
+          <% if (canManagePermits) { %>
+            <td>
+              <form method="post" action="/permits/<%= p.id %>/status" class="form-inline">
+                <input type="hidden" name="_csrf" value="<%= csrf %>">
+                <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+                <select name="status">
+                  <option value="active" <%= p.status === 'active' ? 'selected' : '' %>>действует</option>
+                  <option value="suspended" <%= p.status === 'suspended' ? 'selected' : '' %>>приостановлен</option>
+                  <option value="revoked" <%= p.status === 'revoked' ? 'selected' : '' %>>отозван</option>
+                </select>
+                <button type="submit" class="btn btn-link">сохранить</button>
+              </form>
+            </td>
+          <% } %>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<% if (canManagePermits) { %>
+  <h3>Выдать допуск</h3>
+
+  <form method="post" action="/permits/grant" class="form-inline">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="employeeId" value="<%= employee.id %>">
+    <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+
+    <select name="orderId" required>
+      <option value="">— приказ-основание —</option>
+      <% orders.forEach((o) => { %>
+        <option value="<%= o.id %>">
+          № <%= o.number %> от <%= o.issued_on %><%= o.title ? ' — ' + o.title.slice(0, 60) : '' %>
+        </option>
+      <% }) %>
+    </select>
+
+    <select name="permitTypeId" required>
+      <option value="">— к чему допускает —</option>
+      <% permitTypes.forEach((t) => { %>
+        <option value="<%= t.id %>"><%= t.name %></option>
+      <% }) %>
+    </select>
+
+    <label class="field-inline">
+      <span class="field-label">действует до</span>
+      <input type="date" name="expiresAt">
+    </label>
+
+    <button type="submit" class="btn btn-primary">Выдать</button>
+  </form>
+
+  <p class="muted">
+    Дата выдачи берется из приказа. Пустой срок — допуск бессрочный. Нет
+    нужного приказа — заведите его во вкладке «Допуски».
+  </p>
+<% } %>
+
+</section>
+
+<section class="card-tab" id="absences" data-tab="absences" hidden>
+<h2>Отсутствия</h2>
+
+<% if (canAbsence) { %>
+  <%# Отпуск, командировка, больничный и прочее — вносятся здесь; наряд и
+      отсыпной считаются по назначениям и руками не вносятся. %>
+  <form method="post" action="/personnel/<%= employee.id %>/absence" class="form-inline absence-card-form">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+    <select name="typeCode" required>
+      <% absenceTypes.forEach((t) => { %><option value="<%= t.code %>"><%= t.name %></option><% }) %>
+    </select>
+    <label class="field-inline"><span class="field-label">с</span>
+      <input type="date" name="dateFrom" value="<%= onDate %>" required></label>
+    <label class="field-inline"><span class="field-label">по</span>
+      <input type="date" name="dateTo" value="<%= onDate %>" required data-date-to></label>
+    <label class="check-field"><input type="checkbox" name="openEnded" data-open-ended><span>без срока окончания</span></label>
+    <select name="orderId" title="Приказ из «Приказы → Отсутствия»: основание подставится само">
+      <option value="">— приказ из реестра —</option>
+      <% absenceOrders.forEach((o) => { %>
+        <option value="<%= o.id %>">№ <%= o.number %> от <%= fmtDay(o.issued_on) %><%= o.title ? ' — ' + o.title : '' %></option>
+      <% }) %>
+    </select>
+    <input type="text" name="documentRef" size="16" placeholder="или вручную: приказ №, дата">
+    <input type="text" name="note" size="16" placeholder="примечание">
+    <button type="submit" class="btn btn-primary">Отметить отсутствие</button>
+  </form>
+<% } %>
+
+<% if (absences.length === 0) { %>
+  <p class="muted">Отсутствий на полгода вперед нет.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Причина</th>
+        <th>С</th>
+        <th>По</th>
+        <th>Документ</th>
+        <% if (canAbsence) { %><th></th><% } %>
+      </tr>
+    </thead>
+    <tbody>
+      <% absences.forEach((a) => { %>
+        <tr>
+          <td>
+            <%= a.reason %>
+            <% if (a.source === 'import') { %><span class="tag">из приказа</span><% } %>
+          </td>
+          <td><%= fmtDay(a.date_from) %></td>
+          <td><%= a.date_to === 'infinity' ? 'без срока' : fmtDay(a.date_to) %></td>
+          <td class="muted"><%= a.document_ref || '—' %><%= a.note ? ' · ' + a.note : '' %></td>
+          <% if (canAbsence) { %>
+            <td class="col-actions">
+              <%# Досрочно прекратить — отсутствие было, но закончилось раньше
+                  (у бессрочного — завершить); «снять» — его не было. %>
+              <% if (a.date_to === 'infinity' || a.date_to >= onDate) { %>
+                <details class="end-absence">
+                  <summary class="btn btn-link"><%= a.date_to === 'infinity' ? 'завершить' : 'прекратить досрочно' %></summary>
+                  <form method="post" action="/absences/<%= a.id %>/end" class="form-inline">
+                    <input type="hidden" name="_csrf" value="<%= csrf %>">
+                    <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+                    <label class="field-inline"><span class="field-label">по</span>
+                      <input type="date" name="dateTo" value="<%= onDate < a.date_from ? a.date_from : onDate %>" min="<%= a.date_from %>"
+                             <% if (a.date_to !== 'infinity') { %>max="<%= a.date_to %>"<% } %> required></label>
+                    <button type="submit" class="btn btn-link">сохранить</button>
+                  </form>
+                </details>
+              <% } %>
+              <form method="post" action="/absences/<%= a.id %>/cancel" class="form-inline"
+                    onsubmit="return confirm('Снять отметку «<%= a.reason %>»?')">
+                <input type="hidden" name="_csrf" value="<%= csrf %>">
+                <input type="hidden" name="back" value="/personnel/<%= employee.id %>">
+                <button type="submit" class="btn btn-link">снять</button>
+              </form>
+            </td>
+          <% } %>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+</section>
+
+<script>
+  // «без срока окончания» — поле «по» не нужно.
+  document.querySelectorAll('[data-open-ended]').forEach(function (box) {
+    var to = box.closest('form').querySelector('[data-date-to]');
+    box.addEventListener('change', function () { to.disabled = box.checked; to.required = !box.checked; });
+  });
+
+  // Вкладки карточки: раздел — по #адресу (по умолчанию «Данные»).
+  (function () {
+    var sections = Array.prototype.slice.call(document.querySelectorAll('.card-tab'));
+    var links = Array.prototype.slice.call(document.querySelectorAll('[data-tab-link]'));
+    function show() {
+      var name = (location.hash || '#data').slice(1);
+      if (!sections.some(function (s) { return s.dataset.tab === name; })) name = 'data';
+      sections.forEach(function (s) { s.hidden = s.dataset.tab !== name; });
+      links.forEach(function (l) { l.classList.toggle('tab-active', l.dataset.tabLink === name); });
+    }
+    window.addEventListener('hashchange', show);
+    show();
+
+    // «Изменить» — форма правки данных; «Отмена» прячет ее обратно.
+    var form = document.querySelector('.person-edit');
+    document.querySelectorAll('[data-edit-person]').forEach(function (b) {
+      b.addEventListener('click', function () { if (form) form.hidden = !form.hidden; });
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

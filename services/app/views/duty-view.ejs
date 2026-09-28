@@ -1,0 +1,193 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Наряд № <%= duty.id %></h1>
+  <!-- Отдельной кнопки «снять утверждение» нет: утверждение снимается само,
+       как только меняется состав. Утвержденный приказ с изменившимся
+       составом — состояние, которому в делопроизводстве ничего не
+       соответствует. -->
+  <div class="actions">
+    <% if(can('duty.create') && dutyDay>today() && duty.status!=='cancelled') { %><a class="btn" href="/duties/<%= duty.id %>/edit">Изменить личный состав</a><% } %>
+    <% if (can('duty.approve') && duty.status !== 'cancelled') { %>
+      <a class="btn btn-primary"
+         href="/duties/approve?type=<%= duty.duty_type_id %>&date=<%= dutyDay %>&unit=<%= duty.unit_id %>">
+        <%= duty.status === 'approved' ? 'Приказ' : 'Утверждение приказа' %>
+      </a>
+    <% } %>
+    <% if(duty.status==='approved' && roster.length===postCount && !brokenCount) { %><a class="btn" href="/duties/<%= duty.id %>/order" target="_blank">
+      Сформировать приказ
+    </a><% } %>
+    <a class="btn" href="/duties">К графику</a>
+  </div>
+</div>
+
+<% if (duty.status === 'approved') { %>
+  <p class="muted">
+    Наряд утвержден. Правка состава снимает утверждение со всего приказа:
+    подписанный состав и фактический должны совпадать.
+  </p>
+<% } else if (duty.status !== 'cancelled') { %>
+  <p class="warn">
+    Наряд не утвержден. В графике такой день остается желтым до утверждения.
+  </p>
+<% } %>
+
+<dl class="props">
+  <dt>Вид наряда</dt>
+  <dd><span class="tag"><%= duty.duty_code %></span> <%= duty.duty_name %></dd>
+
+  <dt>Заступление</dt>
+  <dd><%= fmtDateTime(duty.starts_at) %></dd>
+
+  <dt>Сдача</dt>
+  <dd><%= fmtDateTime(duty.ends_at) %></dd>
+
+  <dt>Подразделение</dt>
+  <dd><%= duty.unit_name %></dd>
+
+  <dt>Статус</dt>
+  <dd><span class="status status-<%= duty.status %>"><%= dutyStatus(duty.status) %></span></dd>
+
+  <% if (duty.note) { %>
+    <dt>Примечание</dt>
+    <dd><%= duty.note %></dd>
+  <% } %>
+</dl>
+
+<% if (roster.length < postCount || brokenCount) { %>
+  <p class="warn">
+    Не замещено постов: <strong><%= postCount - roster.length + brokenCount %></strong> из <%= postCount %>.
+    Наряд остается неполным, пока они не заняты —
+    <a href="/duties/<%= duty.id %>/edit">заместить</a>.
+  </p>
+<% } %>
+
+<h2>Состав по постам — замещено <%= roster.length - brokenCount %> из <%= postCount %></h2>
+<table class="table">
+  <thead>
+    <tr>
+      <th class="col-num">№</th>
+      <th>Пост</th>
+      <th>Звание</th>
+      <th>Фамилия, имя, отчество</th>
+      <th>Подразделение</th>
+      <th>Примечание</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <% roster.forEach((item, i) => { %>
+      <tr>
+        <td class="col-num"><%= i + 1 %></td>
+        <td>
+          <strong><%= item.post.name %></strong>
+          <% if (item.onDate) { %>
+            <span class="muted">— сутки <%= fmtDay(item.onDate) %></span>
+          <% } %>
+          <% if(item.broken) { %><span class="warn-inline"><%= item.broken %></span><% } %>
+          <% if (item.isOverride) { %>
+            <span class="warn-inline" title="<%= item.overrideReason || '' %>">с нарушением</span>
+          <% } %>
+        </td>
+        <td><%= item.employee ? (item.employee.rank_name || '—') : '—' %></td>
+        <td><%= item.employee ? item.employee.full_name : '—' %></td>
+        <td><%= item.employee ? item.employee.unit_short : '—' %></td>
+        <td class="muted"><%= item.note || '' %></td>
+        <td class="col-check">
+          <% if (can('duty.withdraw') && item.employee && dutyDay>today() && duty.status!=='cancelled') { %>
+            <button type="button" class="btn btn-link"
+                    data-employee="<%= item.employee.id %>" data-name="<%= item.employee.full_name %>" onclick="openWithdraw(Number(this.dataset.employee), this.dataset.name)">
+              снять
+            </button>
+          <% } %>
+        </td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+
+<!-- ------------------------------------------------------------------------
+     Снятие человека с наряда.
+
+     Начальник службы знает о привлечении к работам, приказ о которых до
+     системы не дошел. Простое удаление из состава не помогло бы: назавтра
+     человек снова оказался бы первым в списке кандидатов. Поэтому снятие
+     оформляется отсутствием категории «прочее» на указанные даты.
+     ------------------------------------------------------------------- -->
+<div id="withdrawBox" class="withdraw-box" hidden>
+  <h2>Снять с наряда — привлечен к другим работам</h2>
+
+  <form method="post" action="/duties/<%= duty.id %>/withdraw" class="form">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="employeeId" id="withdrawEmployeeId">
+
+    <p>Снимается: <strong id="withdrawName"></strong></p>
+
+    <div class="row">
+      <label class="field">
+        <span class="field-label">Недоступен с</span>
+        <input type="date" name="dateFrom" id="withdrawFrom" required>
+      </label>
+
+      <label class="field">
+        <span class="field-label">по (включительно)</span>
+        <input type="date" name="dateTo" id="withdrawTo" required>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Приказ-основание</span>
+        <input type="text" name="documentRef" required
+               placeholder="например: приказ № 118 от 05.09.2026">
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Вид работ</span>
+      <input type="text" name="note" placeholder="например: временный караул">
+    </label>
+
+    <p class="muted">
+      Человек будет снят со всех нарядов этого периода и исключен из подбора
+      на указанные даты. В строевой записке пройдет как отсутствующий по
+      категории «прочее».
+    </p>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Снять и внести ограничение</button>
+      <button type="button" class="btn" onclick="closeWithdraw()">Отмена</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Сутки заступления наряда — значение по умолчанию для периода
+  var DUTY_DAY = '<%= dutyDay %>';
+
+  function openWithdraw(employeeId, name) {
+    document.getElementById('withdrawEmployeeId').value = employeeId;
+    document.getElementById('withdrawName').textContent = name;
+    document.getElementById('withdrawFrom').value = DUTY_DAY;
+    document.getElementById('withdrawTo').value = DUTY_DAY;
+    var box = document.getElementById('withdrawBox');
+    box.hidden = false;
+    box.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function closeWithdraw() {
+    document.getElementById('withdrawBox').hidden = true;
+  }
+</script>
+
+<% if(can('duty.override') && dutyDay>today() && duty.status!=='cancelled') { %>
+<details><summary>Исключение администратора</summary>
+<p>Можно разрешить нарушение допуска, отсутствия или отдыха с указанием причины. Занятость в пересекающемся наряде и отсутствие оружия обходить нельзя.</p>
+<form method="post" action="/duties/<%= duty.id %>/replace" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+ <input type="hidden" name="override" value="on">
+ <label class="field">Пост <select name="postId"><% posts.forEach(p=>{ %><option value="<%= p.id %>"><%= p.name %></option><% }) %></select></label>
+ <label class="field">Сутки выхода (только для посменного поста) <input type="date" name="onDate"></label>
+ <label class="field">Сотрудник <select name="employeeId"><% employees.forEach(e=>{ %><option value="<%= e.id %>"><%= e.short_name %></option><% }) %></select></label>
+ <label class="field">Причина исключения <input name="note" required></label>
+ <button type="submit" class="btn">Назначить с исключением</button>
+</form></details><% } %>
+<%- include('partials/footer') %>

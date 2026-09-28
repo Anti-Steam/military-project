@@ -1,0 +1,29 @@
+<%
+  // Таблица личного состава приказа. Нумерация сквозная по всему документу,
+  // поэтому начало передается извне.
+  let n = start;
+%>
+<% if (items.length > 0) { %>
+  <table class="doc-table">
+    <thead>
+      <tr>
+        <th class="col-num">№<br>п/п</th>
+        <th>Пост</th>
+        <th>Воинское звание</th>
+        <th>Фамилия, имя, отчество</th>
+        <th>Подразделение</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% items.forEach((item) => { n += 1; %>
+        <tr>
+          <td class="col-num"><%= n %></td>
+          <td><%= item.post.name %></td>
+          <td><%= item.employee ? (item.employee.rank_name || '') : '' %></td>
+          <td><%= item.employee ? item.employee.full_name : '' %></td>
+          <td><%= item.employee ? item.employee.unit_short : '' %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>

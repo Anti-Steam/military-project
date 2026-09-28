@@ -1,0 +1,76 @@
+<%- include('partials/header', { title }) %>
+<%- include('partials/orders-tabs', { tabs }) %>
+
+<div class="page-head">
+  <h1>Прочие приказы</h1>
+  <% if (canManage) { %><a class="btn" href="/orders/parse#profiles">Виды приказов</a><% } %>
+</div>
+
+<p class="muted">
+  Приказы своих видов — например, «Приказ на караул». Что делать с людьми из
+  такого приказа (отметить отсутствующими, занять их оружие на срок, выдать
+  допуск), задано видом в «Словаре разбора». Заведите приказ с файлом и
+  нажмите в нем «Разобрать приказ» — система найдет людей, сроки и номера
+  оружия и предложит их на проверку.
+</p>
+
+<% if (orders.length === 0) { %><p class="muted">Приказов пока нет.</p><% } %>
+
+<% profiles.forEach((pr) => { %>
+  <% const list = orders.filter((o) => o.profile_id === pr.id); %>
+  <% if (list.length === 0) return; %>
+  <details class="year-box" open>
+    <summary><span class="permit-year"><%= pr.name %></span> <span class="muted">приказов <%= list.length %></span></summary>
+    <table class="table">
+      <thead><tr><th>Приказ</th><th>Издан</th><th>Наименование</th><th>Отсутствуют</th><th>Оружие занято</th><th>Файл</th></tr></thead>
+      <tbody>
+        <% list.forEach((o) => { %>
+          <tr>
+            <td><a href="/permits/orders/<%= o.id %>">№ <%= o.number %></a></td>
+            <td class="muted"><%= fmtDay(o.issued_on) %></td>
+            <td><%= o.title || '—' %></td>
+            <td class="muted"><%= o.absences %></td>
+            <td class="muted"><%= o.reservations %></td>
+            <td>
+              <% if (o.pdf_path) { %><a href="/permits/orders/<%= o.id %>/pdf" target="_blank">открыть PDF</a>
+              <% } else if (o.file_path) { %><span class="warn-inline">PDF не построен</span>
+              <% } else { %><span class="muted">не приложен</span><% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </details>
+<% }) %>
+
+<% if (canManage) { %>
+  <h2>Новый приказ</h2>
+  <% const active = profiles.filter((p) => p.is_active); %>
+  <% if (active.length === 0) { %>
+    <p class="muted">Сначала задайте вид приказа — <a href="/orders/parse#profiles">«Словарь разбора» → «Виды приказов»</a>.</p>
+  <% } else { %>
+  <form method="post" action="/permits/orders" class="form" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="kind" value="other">
+    <div class="row">
+      <label class="field"><span class="field-label">Вид приказа</span>
+        <select name="profileId" required>
+          <% active.forEach((p) => { %><option value="<%= p.id %>"><%= p.name %></option><% }) %>
+        </select></label>
+      <label class="field"><span class="field-label">Номер приказа</span>
+        <input type="text" name="number" required placeholder="215"></label>
+      <label class="field"><span class="field-label">Дата издания</span>
+        <input type="date" name="issuedOn" required></label>
+    </div>
+    <label class="field"><span class="field-label">Наименование</span>
+      <input type="text" name="title" placeholder="О назначении караула"></label>
+    <label class="field"><span class="field-label">Файл приказа</span>
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.png">
+      <span class="muted">PDF или документ Word, не больше <%= maxSize %> МБ. Разбирается текст — скан не разберется.</span></label>
+    <label class="field"><span class="field-label">Примечание</span><input type="text" name="note"></label>
+    <div class="actions"><button type="submit" class="btn btn-primary">Завести приказ</button></div>
+  </form>
+  <% } %>
+<% } %>
+
+<%- include('partials/footer') %>

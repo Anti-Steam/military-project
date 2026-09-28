@@ -1,0 +1,174 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const isPermit = order.kind === 'permit';
+  const values = isPermit ? dict.permits : dict.absences;
+  const personLabel = (p) => `${p.short_name}${p.first_name ? ' ' + p.first_name[0] + '.' : ''}${p.middle_name ? p.middle_name[0] + '.' : ''} — ${p.unit_short || 'за штатом'}`;
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const KIND = { permit: 'о допуске', absence: 'об отсутствии' };
+%>
+
+<div class="page-head">
+  <h1>Разбор приказа № <%= order.number %></h1>
+  <a class="btn" href="/permits/orders/<%= order.id %>">К приказу</a>
+  <a class="btn" href="/orders/parse">Словарь разбора</a>
+</div>
+
+<p class="muted">
+  Система прочитала приказ и предлагает, <%= isPermit ? 'кого к чему допустить' : 'кого и на какие даты отметить отсутствующим' %>.
+  Ничего не вносится само: проверьте строки, поправьте человека, <%= isPermit ? 'вид допуска' : 'причину и даты' %>,
+  добавьте упущенное («+ строка вручную») и нажмите «Принять отмеченные». Принятое вносится с пометкой
+  «из приказа» и ссылкой на этот приказ.
+</p>
+
+<dl class="props">
+  <dt>Вид в реестре</dt><dd>приказ <%= KIND[order.kind] %></dd>
+  <dt>По заголовку</dt>
+  <dd>
+    <% if (detected) { %>приказ <%= KIND[detected] %> <span class="muted">(узнано по: <%= matchedBy.join(', ') || '—' %>)</span>
+    <% } else { %><span class="muted">не определился — слова заголовков задаются в словаре</span><% } %>
+    <% if (detected && detected !== order.kind) { %>
+      <p class="warn">По заголовку это приказ <%= KIND[detected] %>, а заведен он как приказ <%= KIND[order.kind] %>.
+        Разбор идет по виду в реестре; если приказ заведен не туда — заведите его заново в нужной вкладке «Приказов».</p>
+    <% } %>
+  </dd>
+  <dt>Прочитано</dt>
+  <dd>
+    <%= blocks.length %> абзацев и таблиц
+    <form method="get" action="/permits/orders/<%= order.id %>/parse" class="form-inline">
+      <input type="hidden" name="again" value="1">
+      <button type="submit" class="btn btn-link">прочитать файл заново</button>
+    </form>
+  </dd>
+</dl>
+
+<% if (error) { %><p class="warn"><%= error %></p><% } %>
+<% if (applied !== null) { %>
+  <p class="ok-note">Принято строк: <%= applied %>.</p>
+<% } %>
+<% if (failed) { %><p class="warn">Не принято: <%= failed %></p><% } %>
+
+<form method="post" action="/permits/orders/<%= order.id %>/parse/apply" class="form parse-form" id="parse-form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <input type="hidden" name="count" value="<%= facts.length %>" data-count>
+  <table class="table parse-table">
+    <thead>
+      <tr>
+        <th>Принять</th><th>Кто</th><th><%= isPermit ? 'Вид допуска' : 'Причина' %></th>
+        <% if (isPermit) { %><th>Действует до</th><% } else { %><th>С</th><th>По</th><% } %>
+        <th>Где в приказе</th>
+      </tr>
+    </thead>
+    <tbody data-rows>
+      <% facts.forEach((f, i) => { %>
+        <% const person = f.employeeId ? byId.get(f.employeeId) : null; %>
+        <tr class="<%= f.exists ? 'row-inactive' : '' %>">
+          <td>
+            <input type="checkbox" name="accept_<%= i %>" <%= !f.exists && f.employeeId && f.valueId ? 'checked' : '' %>>
+            <% if (f.exists) { %><span class="tag">уже внесено</span><% } %>
+          </td>
+          <td>
+            <select name="employee_<%= i %>" data-options="people">
+              <option value="">— выбрать —</option>
+              <% if (person) { %><option value="<%= person.id %>" selected><%= personLabel(person) %></option><% } %>
+            </select>
+            <% if (!f.employeeId && f.candidates.length > 1) { %>
+              <div class="muted">«<%= f.personText %>» — несколько: <%= f.candidates.map((id) => byId.get(id) ? byId.get(id).short_name : id).join(', ') %></div>
+            <% } %>
+          </td>
+          <td>
+            <select name="value_<%= i %>">
+              <option value="">— выбрать —</option>
+              <% values.forEach((x) => { %><option value="<%= x.id %>" <%= String(x.id) === String(f.valueId) ? 'selected' : '' %>><%= x.label %></option><% }) %>
+            </select>
+          </td>
+          <% if (isPermit) { %>
+            <td><input type="date" name="to_<%= i %>" value="<%= f.dateTo || '' %>"></td>
+          <% } else { %>
+            <td><input type="date" name="from_<%= i %>" value="<%= f.dateFrom || '' %>"></td>
+            <td><input type="date" name="to_<%= i %>" value="<%= f.dateTo || '' %>" title="пусто — без срока"></td>
+          <% } %>
+          <td class="muted parse-snippet" title="<%= f.snippet %>"><%= f.where %>: <%= f.snippet.length > 90 ? f.snippet.slice(0, 87) + '…' : f.snippet %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <template id="parse-row">
+    <tr>
+      <td><input type="checkbox" name="accept___N__" checked></td>
+      <td><select name="employee___N__" data-options="people"><option value="">— выбрать —</option></select></td>
+      <td>
+        <select name="value___N__">
+          <option value="">— выбрать —</option>
+          <% values.forEach((x) => { %><option value="<%= x.id %>"><%= x.label %></option><% }) %>
+        </select>
+      </td>
+      <% if (isPermit) { %>
+        <td><input type="date" name="to___N__"></td>
+      <% } else { %>
+        <td><input type="date" name="from___N__"></td><td><input type="date" name="to___N__"></td>
+      <% } %>
+      <td class="muted">вручную</td>
+    </tr>
+  </template>
+
+  <div class="actions">
+    <button type="button" class="btn" data-add-row>+ строка вручную</button>
+    <button type="submit" class="btn btn-primary">Принять отмеченные</button>
+  </div>
+</form>
+
+<% if (unknown.length > 0) { %>
+  <h2>Не узнаны в личном составе</h2>
+  <p class="muted">Похожи на людей, но таких в списках нет (или написано иначе). Если человек есть —
+    добавьте строку вручную и выберите его; если нет — сначала примите его на службу.</p>
+  <ul>
+    <% unknown.forEach((u) => { %><li><strong><%= u.name %></strong> <span class="muted">— <%= u.where %></span></li><% }) %>
+  </ul>
+<% } %>
+
+<% if (unparsed.length > 0) { %>
+  <h2>Не понятно, что это</h2>
+  <p class="muted">Здесь есть люди, но не ясно, <%= isPermit ? 'к чему допуск' : 'какая причина' %>. Научите систему: укажите
+    слово или фразу из текста и что она означает — в следующий раз узнается само.</p>
+<% } %>
+<% unparsed.forEach((u) => { %>
+  <div class="parse-unparsed">
+    <div class="muted"><%= u.where %>:</div>
+    <div><%= u.text %></div>
+  </div>
+<% }) %>
+
+<h2>Научить</h2>
+<form method="post" action="/orders/parse/phrases" class="form-inline">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <input type="hidden" name="back" value="/permits/orders/<%= order.id %>/parse">
+  <input type="hidden" name="kind" value="<%= isPermit ? 'permit' : 'absence' %>">
+  <input type="text" name="phrase" required size="30" placeholder="слово или фраза из приказа: «ДПП»">
+  <span>означает</span>
+  <select name="target" required>
+    <option value="">— выбрать —</option>
+    <% values.forEach((x) => { %><option value="<%= x.id %>"><%= x.label %></option><% }) %>
+  </select>
+  <button type="submit" class="btn">Запомнить</button>
+</form>
+
+<script>
+  window.OPTION_LISTS = Object.assign(window.OPTION_LISTS || {}, {
+    people: <%- JSON.stringify(people.map((p) => ({ id: p.id, label: personLabel(p) }))).replace(/</g, '\\u003c') %>
+  });
+  (function () {
+    var form = document.getElementById('parse-form');
+    var rows = form.querySelector('[data-rows]');
+    var count = form.querySelector('[data-count]');
+    form.querySelector('[data-add-row]').addEventListener('click', function () {
+      var n = Number(count.value);
+      var html = document.getElementById('parse-row').innerHTML.replace(/__N__/g, n);
+      rows.insertAdjacentHTML('beforeend', html);
+      count.value = n + 1;
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/print.css">
+</head>
+<body class="print-body">
+
+  <!-- Панель на экране; при печати скрывается правилами print.css -->
+  <div class="toolbar no-print">
+    <button type="button" class="btn btn-primary" onclick="window.print()">Печать</button>
+    <a class="btn" href="/personnel?date=<%= report.onDate %>">К строевой записке</a>
+    <span class="muted">
+      Форма — приложение № 10 к Уставу внутренней службы ВС РФ.
+      Данные синтетические.
+    </span>
+  </div>
+
+  <%
+    const t = report.total;
+    // В бланк идут основные подразделения — так же, как они видны на экране
+    // в свернутом виде. Разбор по взводам на бумаге избыточен: вложенные
+    // уже учтены в своей строке.
+    const lines = report.lines.filter((row) => row.level === 0);
+  %>
+
+  <article class="sheet">
+
+    <header class="sheet-head">
+      <h1 class="doc-title">РАЗВЕРНУТАЯ СТРОЕВАЯ ЗАПИСКА</h1>
+      <div class="org">
+        <%= unitName %> на <%= fmtLongDate(report.onDate) %>
+      </div>
+    </header>
+
+    <section class="sheet-body">
+      <table class="doc-table">
+        <thead>
+          <tr>
+            <th class="col-num">№<br>п/п</th>
+            <th>Подразделение</th>
+            <th>По штату</th>
+            <th>По списку</th>
+            <th>На лицо</th>
+            <% report.columns.forEach((c) => { %><th><%= c.name %></th><% }) %>
+          </tr>
+        </thead>
+        <tbody>
+          <% lines.forEach((row, i) => { %>
+            <tr>
+              <td class="col-num"><%= i + 1 %></td>
+              <td><%= row.name %></td>
+              <td class="col-n"><%= row.staff === null ? '' : row.staff %></td>
+              <td class="col-n"><%= row.sum.listed %></td>
+              <td class="col-n"><%= row.sum.present %></td>
+              <% report.columns.forEach((c) => { %>
+                <td class="col-n"><%= row.sum[c.key] || '' %></td>
+              <% }) %>
+            </tr>
+          <% }) %>
+          <tr class="doc-total">
+            <td class="col-num"></td>
+            <td><strong>Итого</strong></td>
+            <td class="col-n"><strong><%= report.staffTotal === null ? '' : report.staffTotal %></strong></td>
+            <td class="col-n"><strong><%= t.listed %></strong></td>
+            <td class="col-n"><strong><%= t.present %></strong></td>
+            <% report.columns.forEach((c) => { %>
+              <td class="col-n"><strong><%= t[c.key] || '' %></strong></td>
+            <% }) %>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="sheet-foot">
+      <div class="sign">
+        <div class="sign-title">Начальник штаба <%= unitName %></div>
+        <div class="sign-line">
+          <span class="line"></span>
+          <span class="sign-name">И.О. Фамилия</span>
+        </div>
+      </div>
+    </footer>
+
+  </article>
+
+  <%
+    // Оборотная сторона печатается, только если ей есть что сказать: пустой
+    // раздел в документе — это лист, который подписывают ни за чем.
+    // Прикомандированные в системе пока не ведутся, поэтому перечень всегда
+    // пуст и раздел не выводится; появятся — выведется без правки бланка.
+  %>
+  <% if (attached.length > 0 || report.absent.length > 0) { %>
+    <article class="sheet">
+
+      <section class="sheet-body">
+        <p class="doc-side">Оборотная сторона</p>
+
+        <% if (attached.length > 0) { %>
+          <p class="doc-section">Прикомандированные</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th class="col-num">№<br>п/п</th>
+                <th>Воинское звание</th>
+                <th>Фамилия, имя, отчество</th>
+                <th>К какому подразделению прикомандирован (до отделения)</th>
+                <th>Примечание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% attached.forEach((a, i) => { %>
+                <tr>
+                  <td class="col-num"><%= i + 1 %></td>
+                  <td><%= a.rank %></td>
+                  <td><%= a.name %></td>
+                  <td><%= a.unit %></td>
+                  <td><%= a.note || '' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
+
+        <% if (report.absent.length > 0) { %>
+          <p class="doc-section">Отсутствующие</p>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th class="col-num">№<br>п/п</th>
+                <th>Воинское звание</th>
+                <th>Фамилия, имя, отчество</th>
+                <th>Подразделение</th>
+                <th>Причина отсутствия</th>
+                <th>Время отсутствия</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% report.absent.forEach((a, i) => { %>
+                <tr>
+                  <td class="col-num"><%= i + 1 %></td>
+                  <td><%= a.rank %></td>
+                  <td><%= a.name %></td>
+                  <td><%= a.unit %></td>
+                  <td><%= a.reason %></td>
+                  <td>
+                    <% if (a.from === a.to) { %><%= fmtDay(a.from) %>
+                    <% } else { %>с <%= fmtDay(a.from) %><%= a.to === 'infinity' ? ', без срока' : ' по ' + fmtDay(a.to) %><% } %>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
+      </section>
+
+      <footer class="sheet-foot">
+        <div class="sign">
+          <div class="sign-title">Начальник штаба <%= unitName %></div>
+          <div class="sign-line">
+            <span class="line"></span>
+            <span class="sign-name">И.О. Фамилия</span>
+          </div>
+        </div>
+        <div class="printed-at muted-doc">
+          Сформировано автоматически <%= fmtDateTime(printedAt) %>.
+          Наряд и отсыпной посчитаны по назначениям.
+        </div>
+      </footer>
+
+    </article>
+  <% } %>
+
+</body>
+</html>

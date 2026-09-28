@@ -1,0 +1,144 @@
+/* ==========================================================================
+   Печатная форма.
+   На экране лист показывается так же, как будет напечатан, — чтобы вид
+   документа был понятен до отправки на принтер.
+   ========================================================================== */
+
+.print-body {
+  background: #e8eaed;
+  margin: 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  color: #000;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.25rem;
+  background: #fff;
+  border-bottom: 1px solid #d6dae0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 14px;
+}
+
+/* Лист формата A4 */
+.sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 1.5rem auto;
+  padding: 20mm 15mm 15mm 25mm;   /* левое поле шире — под подшивку */
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.sheet-head { text-align: center; margin-bottom: 1.5rem; }
+
+.org { font-size: 12pt; }
+
+.doc-title {
+  font-size: 16pt;
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.doc-meta {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 0.75rem;
+}
+
+.sheet-body p { margin: 0 0 0.75rem; text-align: justify; text-indent: 1.25cm; }
+
+.order-word {
+  text-align: center !important;
+  text-indent: 0 !important;
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  margin: 1rem 0 !important;
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0 1rem;
+  font-size: 11pt;
+}
+
+.doc-table th,
+.doc-table td {
+  border: 1px solid #000;
+  padding: 3pt 5pt;
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-table thead th { text-align: center; font-weight: bold; }
+.doc-table .col-num { width: 1.5cm; text-align: center; }
+
+.muted-doc { font-size: 10pt; color: #444; text-indent: 0 !important; }
+
+/* Строевая записка */
+.doc-table .col-n { text-align: center; width: 1.9cm; }
+.doc-indent { padding-left: 1cm !important; }
+.doc-total td { border-top: 2px solid #000; }
+.doc-side { text-align: right !important; text-indent: 0 !important; font-style: italic; }
+.doc-section {
+  text-align: center !important;
+  text-indent: 0 !important;
+  font-weight: bold;
+  margin: 1rem 0 0.5rem !important;
+}
+
+.sheet-foot { margin-top: 2rem; }
+
+.sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 2rem; }
+.sign-title { max-width: 9cm; }
+.sign-line { display: flex; align-items: flex-end; gap: 0.5rem; }
+.line { display: inline-block; width: 4cm; border-bottom: 1px solid #000; }
+.sign-name { white-space: nowrap; }
+
+.printed-at { margin-top: 2.5rem; }
+
+/* --- Собственно печать ---------------------------------------------------- */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm 15mm 15mm 25mm;
+  }
+
+  .print-body { background: #fff; }
+
+  /* Экранные элементы управления на бумагу не попадают */
+  .no-print,
+  .toolbar,
+  .topbar,
+  .footer { display: none !important; }
+
+  .sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  /* Строку таблицы не разрывать между страницами,
+     заголовок повторять на каждой странице */
+  .doc-table { page-break-inside: auto; }
+  .doc-table tr { page-break-inside: avoid; page-break-after: auto; }
+  .doc-table thead { display: table-header-group; }
+
+  .sheet-foot { page-break-inside: avoid; }
+}
+
+/* Приказ по шаблону вида наряда: поля, кегль и интервал задает шаблон */
+.sheet.templated { font-family: "Times New Roman", "PT Astra Serif", "Liberation Serif", Times, serif; }
+.sheet.templated .doc-p { margin-bottom: 0; }
+.sheet.templated .doc-table { font-size: inherit; margin: 0.4em 0; }
+.doc-sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 2cm; }
+.doc-sign-right { white-space: nowrap; }

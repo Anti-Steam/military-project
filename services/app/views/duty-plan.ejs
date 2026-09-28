@@ -1,0 +1,414 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const weekdays = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+  const dayName = (key) => {
+    const [y, m, d] = key.split('-').map(Number);
+    return weekdays[new Date(y, m - 1, d, 12).getDay()];
+  };
+
+  // Разделы страницы: состав каждой смены блока и сутки посменных постов
+  // внутри нее. Переход по ним нужен одинаково — страница длинная.
+  const sections = days.flatMap((d) => [
+    { date: d.startDate, kind: 'смена', assigned: d.assignedCount,
+      required: d.postCount, nonWorking: d.nonWorking },
+    ...(d.shiftDays || []).map((s) => ({
+      date: s.date, kind: 'посты', assigned: s.assignedCount,
+      required: s.postCount, nonWorking: s.nonWorking,
+    })),
+  ]);
+%>
+
+<div class="page-head">
+  <h1>
+    <% if (days.length > 1) { %>
+      Наряд на <%= days.length %> суток — <%= dutyType.code %>
+    <% } else { %>
+      Наряд на <%= fmtDay(days[0].startDate) %> — <%= dutyType.code %>
+    <% } %>
+  </h1>
+  <a class="btn" href="/duties?type=<%= dutyType.id %>&month=<%= days[0].startDate.slice(0, 7) %>">
+    К графику
+  </a>
+</div>
+
+<% if (days.length > 1) { %>
+  <p class="warn">
+    Приказ на эти сутки выпускается ОДИН, срок выпуска —
+    <strong><%= fmtDay(deadline) %></strong> (<%= dayName(deadline) %>).
+    Поэтому состав назначается сразу на все <%= days.length %> суток, и
+    утверждается приказ целиком.
+  </p>
+<% } else { %>
+  <p class="muted">
+    Срок выпуска приказа — <strong><%= fmtDay(deadline) %></strong>
+    (<%= dayName(deadline) %>).
+  </p>
+<% } %>
+
+<%# «Назначить автоматически» — на незамещенные места этих суток, тем же
+    подбором, что в графике. Назначенных не трогает; прошедшие и
+    утвержденные сутки не меняет. Результат — проект, его можно поправить. %>
+<% if (can('duty.create') && days.some((d) => d.startDate > today() && (!d.duty || d.duty.status !== 'approved'))) { %>
+  <form method="post" action="/duties/plan/autofill" class="form-inline plan-autofill"
+        onsubmit="return confirm('Подобрать людей на незамещенные места<%= days.length > 1 ? ' всех ' + days.length + ' суток' : '' %>? Уже назначенные останутся.')">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="type" value="<%= dutyType.id %>">
+    <input type="hidden" name="date" value="<%= focusDate %>">
+    <button type="submit" class="btn">Назначить автоматически</button>
+    <span class="muted">— на незамещенные места; уже назначенные останутся.</span>
+  </form>
+<% } %>
+<% if (autoFilled !== null) { %>
+  <p class="<%= autoFilled > 0 ? 'ok-note' : 'muted' %>">
+    <%= autoFilled > 0 ? `Автоматически назначено мест: ${autoFilled}. Проверьте и сохраните состав при необходимости правки.`
+                       : 'Подобрать никого не удалось: места замещены или нет подходящих людей.' %>
+  </p>
+<% } %>
+
+<!-- Переход к нужным суткам: при трех-четырех сутках по десятку постов
+     страница длинная, и искать нужный день прокруткой неудобно. -->
+<% if (sections.length > 1) { %>
+  <nav class="day-tabs">
+    <% sections.forEach((s) => { %>
+      <% const key = `${s.kind === 'посты' ? 'shift' : 'day'}-${s.date}`; %>
+      <a href="#<%= key %>" data-tab="<%= key %>"
+         class="day-tab <%= s.nonWorking ? 'day-tab-off' : '' %> <%= s.assigned < s.required ? 'day-tab-short' : '' %>">
+        <%= fmtDay(s.date) %>
+        <span class="day-tab-sub">
+          <%= s.kind %> · <span data-filled><%= s.assigned %></span>/<%= s.required %>
+        </span>
+      </a>
+    <% }) %>
+  </nav>
+<% } %>
+
+<!-- Ответственное подразделение задается ПО ПОСТАМ — в строке каждого поста
+     (очередь поста или точечное закрепление на сутки). Закрепления всего
+     наряда за подразделением нет (решение 121). -->
+
+<form id="roster-form" method="post" action="/duties/plan" class="form">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+  <input type="hidden" name="dutyTypeId" value="<%= dutyType.id %>">
+  <input type="hidden" name="date" value="<%= focusDate %>">
+
+  <p class="muted">Наряд формируется на всю часть.</p><input type="hidden" name="unitId" value="<%= (units.find(u=>u.parent_id===null)||units[0]).id %>">
+</form>
+
+  <% days.forEach((day) => { %>
+    <fieldset <%= day.startDate<=today() ? 'disabled':'' %> style="border:0;padding:0;margin:0">
+    <%# Сутки сворачиваются, когда их в приказе несколько: открыты те, по
+        которым щелкнули в графике, остальные свернуты. %>
+    <details class="plan-day-box" data-day="<%= day.startDate %>"
+             <%= days.length === 1 || day.startDate === focusDate ? 'open' : '' %>>
+    <%# Заголовок суток — один, он же сворачивает: дата, заступление и
+        сдача, сколько замещено. Повторять его внутри — путать. %>
+    <summary class="plan-day-summary <%= day.nonWorking ? 'plan-day-off' : '' %>">
+      <span class="plan-day-title"><%= fmtDay(day.startDate) %>, <%= dayName(day.startDate) %></span>
+      <% if (day.nonWorking) { %><span class="tag tag-holiday">нерабочий</span><% } %>
+      <span class="muted">
+        заступление <%= fmtDateTime(day.period.startsAt) %>, сдача <%= fmtDateTime(day.period.endsAt) %>
+      </span>
+      <span class="plan-day-count">замещено <strong data-filled-summary><%= day.assignedCount %></strong> из <%= day.postCount %><% if (day.brokenCount > 0) { %>,
+        <span class="error">с нарушением: <%= day.brokenCount %></span><% } %></span>
+    </summary>
+    <section id="day-<%= day.startDate %>" data-section="day-<%= day.startDate %>" class="plan-day">
+      <p class="muted">
+        В скобках — очередь заступления: чем выше, тем дольше человек не был в
+        наряде с поправкой на нагрузку с <%= fmtDay(day.workloadFrom) %> и на
+        соответствие посту. Первым предлагается наибольший.
+        <span class="just-rested-note">●</span> — сразу после отсыпного.
+        Людям без своего оружия под фамилией выбирается оружие на наряд.
+        <% if (day.duty) { %>
+          <a href="/duties/<%= day.duty.id %>">наряд № <%= day.duty.id %></a>,
+          <span class="status status-<%= day.duty.status %>"><%= dutyStatus(day.duty.status) %></span>
+        <% } %>
+      </p>
+
+      <table class="table posts-table">
+        <thead>
+          <tr>
+            <th class="col-post">Пост</th>
+            <th>Отвечает</th>
+            <th>Назначить</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% day.rows.forEach((row) => { %>
+            <%- include('partials/post-row', { row, formDate: day.startDate,
+                  canAssignResponsibility, responsibleUnits,
+                  dutyTypeId: dutyType.id, focusDate }) %>
+          <% }) %>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Посты со своим графиком замещаются на КАЖДЫЕ сутки смены: ПТСО и
+         ПУД сменяются ежедневно, хотя и входят в один приказ с постоянным
+         составом. Поэтому у каждых суток свой раздел. -->
+    <% (day.shiftDays || []).forEach((sd) => { %>
+      <section id="shift-<%= sd.date %>" data-section="shift-<%= sd.date %>" class="plan-day plan-shift">
+        <h3 class="<%= sd.nonWorking ? 'plan-day-off' : '' %>">
+          Посты на сутки <%= fmtDay(sd.date) %>, <%= dayName(sd.date) %>
+          <% if (sd.nonWorking) { %><span class="tag tag-holiday">нерабочий</span><% } %>
+          <span class="muted">
+            замещено <span data-filled><%= sd.assignedCount %></span> из <%= sd.postCount %><% if (sd.brokenCount > 0) { %>,
+            <span class="error">с нарушением: <%= sd.brokenCount %></span><% } %>
+          </span>
+        </h3>
+
+        <table class="table posts-table">
+          <thead>
+            <tr>
+              <th class="col-post">Пост</th>
+              <th>Отвечает</th>
+              <th>Назначить</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% sd.rows.forEach((row) => { %>
+              <%- include('partials/post-row', { row, formDate: sd.date,
+                    canAssignResponsibility, responsibleUnits,
+                    dutyTypeId: dutyType.id, focusDate }) %>
+            <% }) %>
+          </tbody>
+        </table>
+      </section>
+    <% }) %>
+    </details>
+    </fieldset>
+  <% }) %>
+
+  <!-- Утверждения здесь нет намеренно: состав подбирает одно должностное
+       лицо, подписывает другое. Кнопка «утвердить» рядом с «сохранить»
+       превращала первую в лишний шаг перед второй. -->
+  <div class="actions plan-actions">
+    <button type="submit" form="roster-form" class="btn btn-primary">
+      Сохранить состав<%= days.length > 1 ? ` на ${days.length} суток` : '' %>
+    </button>
+    <a class="btn" href="/duties?type=<%= dutyType.id %>&month=<%= days[0].startDate.slice(0, 7) %>">
+      Отмена
+    </a>
+  </div>
+
+<% if (dutyIds.length > 0 && can('duty.approve')) { %>
+  <p class="muted">
+    Состав сохранен как проект.
+    <a href="/duties/approve?type=<%= dutyType.id %>&date=<%= focusDate %>&unit=<%= unitId %>">
+      Перейти к утверждению приказа
+    </a>
+    <% if (unfilledTotal > 0) { %>
+      — сейчас не закрыто постов: <strong><%= unfilledTotal %></strong>,
+      утвердить приказ нельзя.
+    <% } %>
+    <% if (weaponTotal > 0) { %>
+      — не выбрано оружие: <strong><%= weaponTotal %></strong>, утвердить приказ нельзя.
+    <% } %>
+  </p>
+<% } %>
+
+<% if (canAssignResponsibility) { %>
+  <script>
+    window.OPTION_LISTS = Object.assign(window.OPTION_LISTS || {}, {
+      responsibleUnits: <%- JSON.stringify(responsibleUnits.map((u) => ({ id: u.id, label: u.path_name || u.short_name }))).replace(/</g, '\\u003c') %>
+    });
+  </script>
+<% } %>
+
+<script>
+  // Открывается на тех сутках, по которым щелкнули в графике: остальные
+  // сутки блока доступны, но внимание принадлежит выбранному дню.
+  (function () {
+    var target = document.getElementById('day-<%= focusDate %>');
+    if (target && <%= days.length > 1 %>) {
+      target.scrollIntoView({ block: 'start' });
+    }
+    // Вкладка суток (и адрес с #сутки) раскрывает свернутые сутки.
+    function openFor(hash) {
+      var el = hash && document.getElementById(hash.replace('#', ''));
+      var box = el && el.closest('details.plan-day-box');
+      if (box) box.open = true;
+    }
+    document.querySelectorAll('.day-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () { openFor(tab.getAttribute('href')); });
+    });
+    openFor(location.hash);
+  })();
+
+  // --------------------------------------------------------------------
+  // Мгновенная фильтрация списков.
+  //
+  // Выбранный человек исчезает из остальных постов тех же суток и из
+  // суток, несовместимых с ними по отсыпному: в приказном блоке сутки
+  // идут подряд, и отдых от первых накрывает вторые. Проверка на сервере
+  // остается — форму можно прислать и мимо страницы, — но отказ ПОСЛЕ
+  // заполнения двенадцати постов означал бы заполнять их заново.
+  // --------------------------------------------------------------------
+  (function () {
+    var CONFLICTS = <%- JSON.stringify(slotConflicts) %>;
+    var selects = Array.prototype.slice.call(document.querySelectorAll('select[data-class]'));
+
+    function refresh() {
+      var taken = {};
+
+      selects.forEach(function (select) {
+        if (!select.value) return;
+        var group = select.getAttribute('data-class');
+        if (!taken[group]) taken[group] = {};
+        taken[group][select.value] = select;
+      });
+
+      selects.forEach(function (select) {
+        var group = select.getAttribute('data-class');
+        var scope = [group].concat(CONFLICTS[group] || []);
+
+        Array.prototype.forEach.call(select.options, function (option) {
+          var busy = false;
+
+          if (option.value && option.value !== select.value) {
+            busy = scope.some(function (d) {
+              return taken[d] && taken[d][option.value] && taken[d][option.value] !== select;
+            });
+          }
+
+          option.disabled = busy;
+          option.hidden = busy;
+        });
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Счетчики замещенных мест.
+    //
+    // Цифры в оглавлении и в заголовках разделов считаются по ТЕКУЩЕМУ
+    // состоянию формы, а не по сохраненному составу: назначение идет
+    // сверху вниз, и пока страница не отправлена, серверные числа устарели
+    // с первого же выбора. Оглавление для того и нужно, чтобы видеть, где
+    // осталось незакрытое.
+    // ------------------------------------------------------------------
+    var sections = Array.prototype.slice.call(document.querySelectorAll('[data-section]'));
+
+    function recount() {
+      sections.forEach(function (section) {
+        var own = Array.prototype.slice.call(section.querySelectorAll('select[data-class]'));
+        var filled = own.filter(function (select) { return Boolean(select.value); }).length;
+
+        var here = section.querySelector('[data-filled]');
+        if (here) here.textContent = filled;
+
+        var tab = document.querySelector('[data-tab="' + section.getAttribute('data-section') + '"]');
+        if (!tab) return;
+
+        var counter = tab.querySelector('[data-filled]');
+        if (counter) counter.textContent = filled;
+        tab.classList.toggle('day-tab-short', filled < own.length);
+      });
+
+      // Заголовок свернутых суток: замещено по основному составу суток.
+      document.querySelectorAll('details.plan-day-box').forEach(function (box) {
+        var main = box.querySelector('section.plan-day');
+        var here = box.querySelector('[data-filled-summary]');
+        if (!main || !here) return;
+        var own = Array.prototype.slice.call(main.querySelectorAll('select[data-class]'));
+        here.textContent = own.filter(function (x) { return Boolean(x.value); }).length;
+      });
+    }
+
+    selects.forEach(function (select) {
+      select.addEventListener('change', refresh);
+      select.addEventListener('change', recount);
+    });
+    refresh();
+    recount();
+  })();
+
+  // --------------------------------------------------------------------
+  // Оружие на наряд.
+  //
+  // Под человеком без своего оружия нужного вида появляется список чужого
+  // оружия — свободного в эти и следующие сутки (перечень группы отдает
+  // сервер). Оружие, выбранное в другой строке, из списков убирается. Оружие
+  // человека, выбранного в этой форме, убирается, только если он сам несет
+  // его на своем посту; в наряде без оружия оно ему не нужно и остается в
+  // выборе. Окончательная проверка — при сохранении.
+  // --------------------------------------------------------------------
+  (function () {
+    var OPTIONS = <%- JSON.stringify(weaponOptions).replace(/</g, '\\u003c') %>;
+    var ARMED = <%- JSON.stringify(armedOwners).replace(/</g, '\\u003c') %>;
+    var picks = Array.prototype.slice.call(document.querySelectorAll('.weapon-pick'));
+    var people = Array.prototype.slice.call(document.querySelectorAll('select[data-class]'));
+
+    function personOf(pick) {
+      var select = pick.closest('td').querySelector('select[data-class]');
+      return select ? select.value : '';
+    }
+
+    // Есть ли у человека свое оружие этого вида. Для сохраненного человека
+    // ответ сервера точнее: свое могло быть выдано другому.
+    function armed(pick, person) {
+      if (!person) return false;
+      if (person === pick.dataset.savedPerson) return person === pick.dataset.ownPerson;
+      return (ARMED[pick.dataset.weaponKind] || []).map(String).indexOf(person) !== -1;
+    }
+
+    picks.forEach(function (pick) {
+      var select = pick.querySelector('select');
+      var present = {};
+      Array.prototype.forEach.call(select.options, function (o) { present[o.value] = true; });
+      (OPTIONS[pick.dataset.weaponGroup] || []).forEach(function (w) {
+        if (present[w.id]) return;
+        var option = document.createElement('option');
+        option.value = w.id;
+        option.textContent = w.label;
+        option.setAttribute('data-owner', w.owner || '');
+        select.appendChild(option);
+      });
+    });
+
+    function refresh() {
+      // Кто в этой форме сам несет свое оружие: вид → люди.
+      var carrying = {};
+      picks.forEach(function (pick) {
+        var person = personOf(pick);
+        if (!armed(pick, person)) return;
+        var kind = pick.dataset.weaponKind;
+        if (!carrying[kind]) carrying[kind] = {};
+        carrying[kind][person] = true;
+      });
+
+      var taken = {};
+      picks.forEach(function (pick) {
+        var select = pick.querySelector('select');
+        if (select.value && !pick.querySelector('.weapon-choice').hidden) taken[select.value] = select;
+      });
+
+      picks.forEach(function (pick) {
+        var person = personOf(pick);
+        var own = armed(pick, person);
+        var choice = pick.querySelector('.weapon-choice');
+        var select = choice.querySelector('select');
+
+        pick.querySelector('.weapon-own').hidden = !(own && person === pick.dataset.ownPerson);
+        choice.hidden = !person || own;
+        if (choice.hidden) select.value = '';
+
+        Array.prototype.forEach.call(select.options, function (option) {
+          if (!option.value || option.value === select.value) return;
+          var owner = option.getAttribute('data-owner');
+          var busy = (taken[option.value] && taken[option.value] !== select)
+            || (owner && carrying[pick.dataset.weaponKind] && carrying[pick.dataset.weaponKind][owner]);
+          option.disabled = Boolean(busy);
+          option.hidden = Boolean(busy);
+        });
+      });
+    }
+
+    people.forEach(function (s) { s.addEventListener('change', refresh); });
+    picks.forEach(function (pick) {
+      pick.querySelector('select').addEventListener('change', refresh);
+    });
+    refresh();
+  })();
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,135 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Наряды</h1>
+  <% if (canTypes) { %>
+    <a class="btn btn-primary" href="/duty-types/new">Новый вид наряда</a>
+  <% } %>
+</div>
+
+<p class="muted">
+  Виды нарядов и их посты. Вид задает правила — когда заступают, сколько
+  отдыхают, какие допуски обязательны; посты — кто именно заступает. Посты
+  открываются внутри своего вида. Снятые с применения посты — внизу списка:
+  работают с действующими, а снятые нужны, лишь чтобы вернуть. Снятые виды
+  нарядов так же стоят в конце.
+</p>
+<% if (canTypes || canPosts) { %><%- include('partials/sortable-hint') %><% } %>
+
+<div <% if (canTypes) { %>data-sortable="/duty-types/order" data-csrf="<%= csrf %>"<% } %>>
+<% types.forEach((t) => { %>
+  <%
+    const active = t.postList.filter((p) => p.is_active).length;
+    const off = t.postList.length - active;
+  %>
+  <details class="unit-node duty-type-node <%= t.is_active ? '' : 'row-inactive' %>"
+           id="type-<%= t.id %>" <%= open === t.id ? 'open' : '' %>
+           <% if (canTypes && t.is_active) { %>data-sort-id="<%= t.id %>"<% } %>>
+    <summary>
+      <% if (canTypes && t.is_active) { %><%- include('partials/drag-handle') %><% } %>
+      <span class="tag"><%= t.code %></span>
+      <span class="unit-name"><%= t.name %></span>
+      <span class="muted">
+        <%= t.start_time ? t.start_time.slice(0, 5) : '—' %>,
+        <% if (t.kind === 'multiday') { %>многосуточная смена<% } else { %>ежедневно, <%= t.duration_hours || 24 %> ч<% } %>
+        · отсыпной <%= t.recovery_sleep_days %> сут.
+        · постов <%= active %><% if (off > 0) { %>, снято <%= off %><% } %>
+        <% if (t.allow_consecutive) { %> · можно подряд<% } %>
+        <% if (!t.is_active) { %> · вид не применяется<% } %>
+      </span>
+
+      <span class="type-actions">
+        <% if (canTypes) { %>
+          <a class="btn btn-link" href="/duty-types/<%= t.id %>/edit">изменить</a>
+          <a class="btn btn-link" href="/duty-types/<%= t.id %>/order" title="Шаблон приказа этого вида наряда">приказ</a>
+        <% } %>
+        <% if (canPosts) { %>
+          <a class="btn btn-add" href="/posts/new?type=<%= t.id %>"
+             title="Добавить пост в «<%= t.code %>»">+</a>
+        <% } %>
+      </span>
+    </summary>
+
+    <div class="unit-body">
+      <% if (t.postList.length === 0) { %>
+        <p class="muted">
+          Постов нет.
+          <% if (canPosts) { %><a href="/posts/new?type=<%= t.id %>">Добавить первый</a>.<% } %>
+        </p>
+      <% } else { %>
+        <table class="table post-table">
+          <thead>
+            <tr>
+              <% if (canPosts) { %><th class="col-drag"></th><% } %>
+              <th>Кратко</th>
+              <th>Наименование</th>
+              <th>Подразделения</th>
+              <% if (canPosts) { %><th></th><% } %>
+            </tr>
+          </thead>
+          <tbody <% if (canPosts) { %>data-sortable="/duty-types/<%= t.id %>/posts/order" data-csrf="<%= csrf %>"<% } %>>
+            <% t.postList.forEach((p, i) => { %>
+              <% if (!p.is_active && (i === 0 || t.postList[i - 1].is_active)) { %>
+                <tr class="post-divider"><td colspan="<%= canPosts ? 5 : 3 %>">Сняты с применения</td></tr>
+              <% } %>
+              <tr class="<%= p.is_active ? '' : 'row-inactive' %>"
+                  <% if (canPosts && p.is_active) { %>data-sort-id="<%= p.id %>"<% } %>>
+                <% if (canPosts) { %>
+                  <td class="col-drag">
+                    <% if (p.is_active) { %><%- include('partials/drag-handle') %><% } %>
+                  </td>
+                <% } %>
+                <td><%= p.short_name || '' %></td>
+                <td><%= p.name %></td>
+                <td>
+                  <% if (p.queue.length === 0) { %>
+                    <span class="muted">— общий, заступает вся часть —</span>
+                  <% } else { %>
+                    <%= p.queue.map((q) => q.unit_short).join(', ') %>
+                    <% if (p.queue.length > 1) { %>
+                      <span class="tag">по очереди с <%= fmtDay(p.rotation_since) %></span>
+                    <% } %>
+                  <% } %>
+                </td>
+                <% if (canPosts) { %>
+                  <td class="post-actions">
+                    <a class="btn btn-link" href="/posts/<%= p.id %>/edit">изменить</a>
+
+                    <form method="post" action="/posts/<%= p.id %>/active" class="form-inline">
+                      <input type="hidden" name="_csrf" value="<%= csrf %>">
+                      <% if (p.is_active) { %>
+                        <button type="submit" class="btn btn-link"
+                                title="Перестанет предлагаться в новых нарядах; прошлые приказы не меняются">
+                          отключить
+                        </button>
+                      <% } else { %>
+                        <input type="hidden" name="active" value="on">
+                        <button type="submit" class="btn btn-link">вернуть</button>
+                      <% } %>
+                    </form>
+
+                    <% if (p.assignments === 0) { %>
+                      <form method="post" action="/posts/<%= p.id %>/delete" class="form-inline"
+                            onsubmit="return confirm('Удалить пост «<%= p.name %>»? Действие необратимо.')">
+                        <input type="hidden" name="_csrf" value="<%= csrf %>">
+                        <button type="submit" class="btn btn-link btn-danger">удалить</button>
+                      </form>
+                    <% } else { %>
+                      <span class="muted" title="Пост стоял в нарядах: удалить его значит испортить прошлые приказы. Его можно только отключить.">
+                        в нарядах: <%= p.assignments %>
+                      </span>
+                    <% } %>
+                  </td>
+                <% } %>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  </details>
+<% }) %>
+</div>
+
+
+<%- include('partials/footer') %>

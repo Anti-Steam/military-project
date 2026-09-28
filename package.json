@@ -1,0 +1,17 @@
+{
+  "name": "military-project",
+  "version": "0.1.0",
+  "private": true,
+  "description": "АИС учета личного состава, допусков и суточных нарядов. Служебные скрипты уровня репозитория.",
+  "scripts": {
+    "migrate": "node --env-file=.env db/migrate.js",
+    "migrate:status": "node --env-file=.env db/migrate.js --status",
+    "start": "node scripts/start.js",
+    "test": "node --test tests/*.test.js",
+    "test:integration": "node --env-file=.env tests/integration.js",
+    "check": "node --env-file=.env tests/run.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

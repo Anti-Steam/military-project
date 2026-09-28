@@ -1,0 +1,229 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const monthTitle = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль',
+                      'Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month - 1];
+  const q = (m, t, u) => `/duties?month=${m}&type=${t}` + (u ? `&unit=${u}` : '');
+%>
+
+<div class="page-head">
+  <h1>График нарядов</h1>
+</div>
+
+<!-- Вкладка на каждый вид наряда: у них разные посты и разные составы.
+     Порядок вкладок — порядок видов нарядов: вкладку тянут за название (право ведения
+     видов нарядов) и хранится в базе, общий для графика, «Нарядов» и
+     «Приказов». -->
+<% const sortTypes = can('dutytype.manage'); %>
+<nav class="tabs duty-type-tabs" <% if (sortTypes) { %>data-sortable="/duty-types/order" data-sort-whole data-csrf="<%= csrf %>"<% } %>>
+  <% dutyTypes.forEach((t) => { %>
+    <a href="<%= q(monthKey, t.id, unitId) %>" data-sort-id="<%= t.id %>" draggable="<%= sortTypes ? 'true' : 'false' %>"
+       class="tab <%= t.id === current.id ? 'tab-active' : '' %>"
+       <% if (sortTypes) { %>title="Щелчок — открыть; перетащить — изменить порядок видов"<% } %>>
+      <%= t.code %><span class="tab-full"> — <%= t.name %></span>
+    </a>
+  <% }) %>
+</nav>
+
+<div class="cal-bar">
+  <div class="cal-nav">
+    <a class="btn" href="<%= q(prevMonth, current.id, unitId) %>" title="Предыдущий месяц">←</a>
+    <span class="cal-month"><%= monthTitle %> <%= year %></span>
+    <a class="btn" href="<%= q(nextMonth, current.id, unitId) %>" title="Следующий месяц">→</a>
+    <a class="btn" href="<%= q(thisMonth, current.id, unitId) %>">Текущий</a>
+  </div>
+
+  <span class="muted">Наряд на всю часть</span>
+
+  <% if (typeof canAutofill !== 'undefined' && canAutofill) { %>
+    <!-- Подбор по требованию. Назначенных и утвержденное не трогает — только
+         добирает незамещенные места впереди в этом месяце. -->
+    <form method="post" action="/duties/autofill" class="form-inline"
+          title="Подобрать состав на незамещённые места впереди по очереди заступления">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="type" value="<%= current.id %>">
+      <input type="hidden" name="month" value="<%= monthKey %>">
+      <button type="submit" class="btn btn-primary">Назначить автоматически</button>
+    </form>
+  <% } %>
+</div>
+
+<div class="legend">
+  <span class="legend-item"><i class="sw sw-missing"></i>не назначен</span>
+  <span class="legend-item"><i class="sw sw-incomplete"></i>неполный состав</span>
+  <span class="legend-item"><i class="sw sw-auto"></i>предложено системой</span>
+  <span class="legend-item"><i class="sw sw-pending"></i>ждет утверждения</span>
+  <span class="legend-item"><i class="sw sw-approved"></i>утвержден</span>
+  <span class="legend-item"><i class="sw sw-overdue"></i>позади (полоса слева — состояние)</span>
+  <span class="legend-item"><i class="sw sw-urgent-demo"></i>приказ нужен сегодня</span>
+  <% if (scoped) { %>
+    <span class="legend-item"><i class="sw sw-foreign"></i>отвечает другое подразделение</span>
+  <% } %>
+</div>
+
+<% if (scoped) { %>
+  <p class="muted">
+    Счёт идёт по ВАШИМ постам: красным отмечены сутки, где закреплённый за
+    вами пост не замещён. Посты других подразделений видны, но вашего действия
+    не требуют — в таких сутках показано только общее число мест.
+  </p>
+<% } %>
+
+<% if (typeof filled !== 'undefined' && filled && filled.filled > 0) { %>
+  <p class="muted">
+    Система подобрала состав на незамещённые места: <strong><%= filled.filled %></strong>
+    в <%= filled.blocks %> приказ<%= filled.blocks === 1 ? '' : 'ах' %>.
+    Такие сутки помечены оранжевым и ждут подтверждения — состав предложен по
+    очереди заступления, а не назначен человеком.
+    <% if (filled.left > 0) { %>
+      Обработаны не все приказы месяца — нажмите «Назначить автоматически»
+      ещё раз, чтобы добрать оставшиеся (<%= filled.left %>).
+    <% } %>
+  </p>
+<% } else if (typeof filled !== 'undefined' && filled && filled.manual) { %>
+  <p class="muted">
+    Подбирать нечего: все места впереди, которые можно закрыть, уже замещены.
+    Если ниже остались незакрытые сутки — на них нет подходящих людей: все
+    допущенные заняты, в отсыпном или отсутствуют.
+  </p>
+<% } %>
+
+<% if (summary.missing + summary.incomplete > 0) { %>
+  <p class="warn">
+    Не закрыто впереди: <strong><%= summary.missing + summary.incomplete %></strong>
+    (не назначено <%= summary.missing %>, неполный состав <%= summary.incomplete %>).
+    <% if (summary.urgent > 0) { %>
+      Из них требуют приказа немедленно: <strong><%= summary.urgent %></strong>.
+    <% } %>
+  </p>
+<% } %>
+
+<% if (summary.overdue > 0) { %>
+  <p class="muted">
+    Прошедших суток с незакрытым составом: <strong><%= summary.overdue %></strong>.
+    Приказ на них уже не выпускается — отмечены как пробел в заполнении месяца.
+  </p>
+<% } %>
+
+<table class="calendar">
+  <thead>
+    <tr>
+      <% ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach((d, i) => { %>
+        <th class="<%= i >= 5 ? 'col-weekend' : '' %>"><%= d %></th>
+      <% }) %>
+    </tr>
+  </thead>
+  <tbody>
+    <% grid.forEach((week) => { %>
+      <tr>
+        <% week.forEach((day) => { %>
+          <%
+            const c = day.cell;
+            const classes = ['cal-day'];
+            if (day.outside) classes.push('cal-outside');
+            if (day.nonWorking) classes.push('cal-nonworking');
+            if (day.isToday) classes.push('cal-today');
+            if (c) classes.push('st-' + c.status);
+            // Незакрытые сутки чужого подразделения показываются спокойно:
+            // они требуют действия не от этого пользователя.
+            if (c && c.foreign) classes.push('cal-foreign');
+            if (c && c.past) classes.push('cal-past');
+            if (c && c.urgent) classes.push('cal-urgent');
+          %>
+          <td class="<%= classes.join(' ') %>">
+            <div class="cal-head">
+              <span class="cal-num"><%= day.dayNumber %></span>
+              <% if (day.holidayName) { %>
+                <span class="cal-holiday" title="<%= day.holidayName %>"><%= day.holidayName %></span>
+              <% } %>
+            </div>
+
+            <% if (!c) { %>
+              <div class="cal-none">—</div>
+            <% } else if (c.continuation) { %>
+              <%
+                // Сутки продолжающейся смены, в которые никто не сменяется.
+                // Замещать в них нечего, но и пустыми они быть не должны:
+                // смена несет службу, и с этого дня нужно попадать в нее —
+                // иначе прошедшие сутки выглядят как пробел в графике.
+                const contHref = c.duty && c.status === 'approved'
+                  ? `/duties/${c.duty.id}`
+                  : `/duties/plan?type=${current.id}&date=${c.startDate}`
+                    + (unitId ? `&unit=${unitId}` : '');
+              %>
+              <a class="cal-body cal-cont"
+                 title="Смена заступила <%= fmtDay(c.startDate) %> • <%= c.title %>"
+                 href="<%= contHref %>">
+                <span class="cal-status"><%= c.title %></span>
+                <span class="cal-span">смена с <%= fmtDay(c.startDate) %></span>
+                <% if (c.units.length > 0) { %>
+                  <span class="cal-span cal-unit"><%= c.units.join(', ') %></span>
+                <% } %>
+              </a>
+            <% } else { %>
+              <%
+                // Любой день ведет на страницу приказного блока: приказ
+                // выпускается на все его сутки разом, и назначать по одному
+                // дню значит держать в голове, какие сутки уже вошли в приказ.
+                // Сутки внутри многосуточной смены ведут туда же, но к своему
+                // разделу: посты ПТСО и ПУД замещаются на каждые сутки.
+                // Готовый утвержденный наряд открывается карточкой.
+                const done = c.duty && c.status === 'approved'
+                  && c.assigned >= c.postCount && c.broken === 0;
+                const href = done
+                  ? `/duties/${c.duty.id}`
+                  : `/duties/plan?type=${current.id}&date=${c.startDate}`
+                    + (unitId ? `&unit=${unitId}` : '')
+                    + (c.isStart ? '' : `#shift-${c.anchorDate}`);
+              %>
+              <a class="cal-body"
+                 title="<%= c.title %><%= c.deadline ? ' • приказ до ' + c.deadline : '' %><%= c.broken > 0 ? ' • назначено с нарушением: ' + c.broken + ' (' + c.brokenReasons.join('; ') + ')' : '' %><%= c.notes.length > 0 ? ' • замены: ' + c.notes.join('; ') : '' %>"
+                 href="<%= href %>">
+                <span class="cal-status"><%= c.title %></span>
+                <!-- Считаются только ДЕЙСТВИТЕЛЬНО замещенные посты: пост,
+                     занятый непригодным человеком, не замещен. -->
+                <span class="cal-count">
+                  <% if (c.foreign) { %>
+                    <%= c.totalRequired %> мест
+                  <% } else { %>
+                    <%= c.assigned %>/<%= c.postCount %><% if (c.broken > 0) { %><span class="cal-broken">−<%= c.broken %></span><% } %>
+                  <% } %>
+                </span>
+                <% if (c.broken > 0) { %>
+                  <span class="cal-span cal-broken-why"><%= c.brokenReasons.join('; ') %></span>
+                <% } %>
+                <% if (c.notes.length > 0) { %>
+                  <span class="cal-span cal-note">замена: <%= c.notes.join('; ') %></span>
+                <% } %>
+                <% if (c.days > 1 && c.isStart) { %><span class="cal-span"><%= c.days %> сут.</span><% } %>
+                <% if (!c.isStart) { %><span class="cal-span">смена продолжается</span><% } %>
+                <% if (c.units.length > 0) { %>
+                  <span class="cal-span cal-unit"><%= c.units.join(', ') %></span>
+                <% } %>
+                <% if (c.urgent) { %><span class="cal-bang">приказ сегодня</span><% } %>
+              </a>
+
+              <!-- В сутки смены сходятся места двух приказов: сдающая смена
+                   держит дневные посты, вечером заступает следующая. -->
+              <% (c.others || []).forEach((o) => { %>
+                <a class="cal-other"
+                   href="/duties/plan?type=<%= current.id %>&date=<%= o.startDate %>#shift-<%= c.anchorDate %>">
+                  ещё <%= o.required %> — приказ от <%= fmtDay(o.startDate) %>
+                </a>
+              <% }) %>
+            <% } %>
+          </td>
+        <% }) %>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+
+<p class="muted">
+  Срок выпуска приказа — ближайший предшествующий рабочий день. Поэтому на
+  субботу, воскресенье и понедельник приказ готовится в пятницу.
+  Состав нерабочих дней правится в справочнике
+  <a href="/calendar?year=<%= year %>">празднично-выходных дней</a>.
+</p>
+
+<%- include('partials/footer') %>

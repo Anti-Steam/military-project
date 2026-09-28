@@ -1,0 +1,145 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const permitName = new Map(dict.permits.map((p) => [String(p.id), p.label]));
+  const absenceName = new Map(dict.absences.map((a) => [String(a.id), a.label]));
+  const targetLabel = (p) => (p.kind === 'permit' ? permitName.get(p.target) : p.kind === 'absence' ? absenceName.get(p.target) : '');
+%>
+
+<div class="page-head">
+  <h1>Словарь разбора приказов</h1>
+  <a class="btn" href="/permits">К приказам</a>
+</div>
+
+<p class="muted">
+  По этим словам система разбирает приказы. Названия видов допуска и причин
+  отсутствия она узнает сама — в любом падеже («дежурным по части» =
+  «Дежурный по части»); здесь — все остальное: слова заголовков, по которым
+  приказ относится к виду, сокращения и иные формулировки, отметки в таблицах.
+  Слово можно задать началом («командировк» — любое его окончание).
+  Пополняется и прямо при проверке разбора («Научить»).
+</p>
+
+<h2 id="profiles">Виды приказов</h2>
+<p class="muted">
+  Свой вид приказа — например, «Приказ на караул»: по каким словам заголовка
+  он узнается и что сделать с каждым найденным в нем человеком — отметить
+  отсутствующим (с выбранной причиной), занять указанное рядом с ним оружие
+  на срок (на наряд оно не выдается), выдать допуск. Приказы таких видов —
+  во вкладке «Приказы» → «Прочие».
+</p>
+
+<% const profileFields = (p) => { %>
+  <div class="row">
+    <label class="field"><span class="field-label">Название</span>
+      <input type="text" name="name" required value="<%= p ? p.name : '' %>" placeholder="Приказ на караул"></label>
+    <label class="field"><span class="field-label">Слова заголовка (через запятую)</span>
+      <input type="text" name="headerPhrases" size="36" value="<%= p ? p.header_phrases.join(', ') : '' %>" placeholder="караул, назначении караула"></label>
+  </div>
+  <div class="row">
+    <label class="field"><span class="field-label">Отметить отсутствующим</span>
+      <select name="absenceCode">
+        <option value="">— нет —</option>
+        <% dict.absences.forEach((a) => { %><option value="<%= a.id %>" <%= p && p.absence_code === a.id ? 'selected' : '' %>><%= a.label %></option><% }) %>
+      </select></label>
+    <label class="field"><span class="field-label">Выдать допуск</span>
+      <select name="permitTypeId">
+        <option value="">— нет —</option>
+        <% dict.permits.forEach((t) => { %><option value="<%= t.id %>" <%= p && p.permit_type_id === t.id ? 'selected' : '' %>><%= t.label %></option><% }) %>
+      </select></label>
+    <label class="field"><span class="field-label">Срок, если в приказе нет конца (суток)</span>
+      <input type="number" name="defaultDays" min="1" max="366" value="<%= p && p.default_days ? p.default_days : '' %>" placeholder="—"></label>
+  </div>
+  <label class="field-inline"><input type="checkbox" name="reserveWeapons" <%= p && p.reserve_weapons ? 'checked' : '' %>>
+    занять оружие на срок (по номеру рядом с человеком; без номера — закрепленное за ним)</label>
+<% } %>
+
+<% profiles.forEach((p) => { %>
+  <details class="unit-node dict-section" id="profile-<%= p.id %>" <%= open === 'profile-' + p.id ? 'open' : '' %>>
+    <summary>
+      <span class="unit-name"><%= p.name %></span>
+      <span class="muted">
+        <%= [p.absence_code ? 'отсутствие: ' + ((dict.absences.find((a) => a.id === p.absence_code) || {}).label || p.absence_code) : null,
+             p.reserve_weapons ? 'занять оружие' : null,
+             p.permit_type_id ? 'допуск: ' + ((dict.permits.find((t) => t.id === p.permit_type_id) || {}).label || '') : null]
+            .filter(Boolean).join(' · ') %>
+        · приказов <%= p.orders %><%= p.is_active ? '' : ' · выключен' %>
+      </span>
+    </summary>
+    <div class="unit-body">
+      <form method="post" action="/orders/parse/profiles/<%= p.id %>" class="form">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <% profileFields(p) %>
+        <label class="field-inline"><input type="checkbox" name="isActive" <%= p.is_active ? 'checked' : '' %>> действует (есть в выборе при заведении приказа)</label>
+        <div class="actions"><button type="submit" class="btn btn-primary">Сохранить</button></div>
+      </form>
+      <form method="post" action="/orders/parse/profiles/<%= p.id %>/delete" class="form-inline"
+            onsubmit="return confirm('Удалить вид «<%= p.name %>»?')">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button type="submit" class="btn btn-link btn-danger" <%= p.orders ? 'disabled title="Есть приказы этого вида — выключите его"' : '' %>>удалить вид</button>
+      </form>
+    </div>
+  </details>
+<% }) %>
+
+<details class="unit-node dict-section" id="profile-new" <%= profiles.length === 0 ? 'open' : '' %>>
+  <summary><span class="unit-name">+ Новый вид приказа</span></summary>
+  <div class="unit-body">
+    <form method="post" action="/orders/parse/profiles" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <% profileFields(null) %>
+      <div class="actions"><button type="submit" class="btn btn-primary">Добавить вид</button></div>
+    </form>
+  </div>
+</details>
+
+<h2>Слова</h2>
+
+<% sections.forEach((section) => { %>
+  <% const list = phrases.filter((p) => p.section_id === section.id); %>
+  <details class="unit-node dict-section" id="section-<%= section.kind %>" <%= open === section.kind ? 'open' : '' %>>
+    <summary>
+      <span class="unit-name"><%= section.name %></span>
+      <span class="muted">
+        слов <%= list.length %>
+      </span>
+    </summary>
+    <div class="unit-body">
+      <% if (list.length === 0) { %><p class="muted">Пусто.</p><% } else { %>
+        <table class="table">
+          <tbody>
+            <% list.forEach((p) => { %>
+              <tr>
+                <td><strong><%= p.phrase %></strong></td>
+                <td><%= targetLabel(p) || '' %></td>
+                <td class="muted"><%= p.author ? p.author + ', ' : '' %><%= p.created_on %></td>
+                <td class="col-actions">
+                  <form method="post" action="/orders/parse/phrases/<%= p.id %>/delete" class="form-inline"
+                        onsubmit="return confirm('Убрать «<%= p.phrase %>» из словаря?')">
+                    <input type="hidden" name="_csrf" value="<%= csrf %>">
+                    <button type="submit" class="btn btn-link btn-danger">убрать</button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+      <form method="post" action="/orders/parse/phrases" class="form-inline">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <input type="hidden" name="kind" value="<%= section.kind %>">
+        <input type="text" name="phrase" required size="30" placeholder="слово или фраза">
+        <% if (section.kind === 'permit' || section.kind === 'absence') { %>
+          <span>означает</span>
+          <select name="target" required>
+            <option value="">— выбрать —</option>
+            <% (section.kind === 'permit' ? dict.permits : dict.absences).forEach((x) => { %><option value="<%= x.id %>"><%= x.label %></option><% }) %>
+          </select>
+        <% } %>
+        <button type="submit" class="btn">Добавить</button>
+      </form>
+    </div>
+  </details>
+<% }) %>
+
+<%- include('partials/footer') %>

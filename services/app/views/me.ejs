@@ -1,0 +1,133 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  // Браузер и система — коротко, по строке браузера.
+  const browser = (ua) => {
+    const s = String(ua || '');
+    const name = /YaBrowser/.test(s) ? 'Яндекс Браузер' : /Firefox\//.test(s) ? 'Firefox'
+      : /Edg\//.test(s) ? 'Edge' : /Chrom(e|ium)\//.test(s) ? 'Chromium/Chrome' : /Safari\//.test(s) ? 'Safari' : 'браузер';
+    const os = /Windows/.test(s) ? 'Windows' : /Astra/i.test(s) ? 'Astra Linux' : /Linux/.test(s) ? 'Linux'
+      : /Mac OS/.test(s) ? 'macOS' : /Android/.test(s) ? 'Android' : '';
+    return s ? `${name}${os ? ', ' + os : ''}` : '—';
+  };
+  const time = (t) => new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+%>
+
+<div class="page-head">
+  <h1>Мои данные</h1>
+  <a class="btn" href="/password">Сменить пароль</a>
+</div>
+
+<% if (!employee) { %>
+  <p class="muted">Учетная запись <strong><%= currentUser.login %></strong> не связана с сотрудником —
+    личных данных нет. Связать ее может администратор.</p>
+<% } else { %>
+  <dl class="props">
+    <dt>Кто</dt><dd><%= employee.rank_name || '' %> <%= [employee.last_name, employee.first_name, employee.middle_name].filter(Boolean).join(' ') %></dd>
+    <dt>Подразделение</dt>
+    <dd><% if (unitPath.length === 0) { %>за штатом<% } else { %><% unitPath.forEach((u, i) => { %><%= i > 0 ? ' → ' : '' %><%= u.short_name %><% }) %><% } %></dd>
+    <dt>Должность</dt><dd><%= employee.position || '—' %></dd>
+  </dl>
+
+  <h2 id="duties">Мои наряды</h2>
+  <p class="muted">За 30 суток назад и на 60 вперед. «Проект» — еще может измениться, окончательно — «утвержден».</p>
+  <% if (duties.length === 0) { %><p class="muted">Нарядов нет.</p><% } else { %>
+    <table class="table">
+      <thead><tr><th>Сутки</th><th>Наряд</th><th>Пост</th><th>Время</th><th>Оружие</th><th>Приказ</th></tr></thead>
+      <tbody>
+        <% duties.forEach((d) => { %>
+          <tr class="<%= d.start_date < onDate ? 'row-inactive' : '' %>">
+            <td><%= fmtDay(d.start_date) %></td>
+            <td><%= d.duty_code %> <span class="muted"><%= d.duty_name %></span></td>
+            <td><%= d.post_name %></td>
+            <td class="muted"><%= time(d.starts_at) %> — <%= fmtDateTime(d.ends_at) %></td>
+            <td><%= d.serial_number ? `${d.weapon_name} № ${d.serial_number}` : '—' %></td>
+            <td><% if (d.status === 'approved') { %>утвержден<% } else { %><span class="tag tag-note"><%= dutyStatus(d.status) %></span><% } %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2 id="absences">Мои отсутствия</h2>
+  <% if (absences.length === 0) { %><p class="muted">Отсутствий нет.</p><% } else { %>
+    <table class="table">
+      <thead><tr><th>Причина</th><th>С</th><th>По</th><th>Основание</th></tr></thead>
+      <tbody>
+        <% absences.forEach((a) => { %>
+          <tr>
+            <td><%= a.reason %></td>
+            <td><%= fmtDay(a.date_from) %></td>
+            <td><%= a.date_to === 'infinity' ? 'без срока' : fmtDay(a.date_to) %></td>
+            <td class="muted"><%= a.document_ref || '—' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2 id="permits">Мои допуски</h2>
+  <% if (permits.length === 0) { %><p class="muted">Допусков нет.</p><% } else { %>
+    <table class="table">
+      <thead><tr><th>Допуск</th><th>Основание</th><th>Выдан</th><th>Действует до</th><th>Состояние</th></tr></thead>
+      <tbody>
+        <% permits.forEach((p) => { %>
+          <tr class="<%= p.valid ? '' : 'row-inactive' %>">
+            <td><%= p.name %></td>
+            <td class="muted"><%= p.order_id ? `приказ № ${p.order_number} от ${fmtDay(p.order_date)}` : (p.document_ref || '—') %></td>
+            <td><%= fmtDay(p.issued_at) %></td>
+            <td><%= p.expires_at ? fmtDay(p.expires_at) : 'бессрочно' %></td>
+            <td>
+              <% if (p.valid) { %><span class="muted">действует</span>
+              <% } else if (p.status !== 'active') { %><span class="warn-inline"><%= p.status === 'suspended' ? 'приостановлен' : 'отозван' %></span>
+              <% } else { %><span class="warn-inline">срок истек</span><% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2 id="weapons">Мое оружие</h2>
+  <% if (weapons.length === 0) { %><p class="muted">За мной оружие не числится.</p><% } else { %>
+    <table class="table">
+      <thead><tr><th>Оружие</th><th>Номер</th><th>Вид</th><th></th></tr></thead>
+      <tbody>
+        <% weapons.forEach((w) => { %>
+          <tr class="<%= w.is_active ? '' : 'row-inactive' %>">
+            <td><%= w.name %></td>
+            <td><%= w.serial_number %></td>
+            <td class="muted"><%= w.kind === 'rifle' ? 'автомат' : 'пистолет' %></td>
+            <td><% if (w.own) { %><span class="tag">закреплено</span><% } else if (w.held) { %><span class="tag">за командиром подразделения</span><% } %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+<% } %>
+
+<h2 id="sessions">Где я вошел</h2>
+<p class="muted">Действующие сеансы этой учетной записи. Не узнаете компьютер или оставили вход на чужом —
+  завершите остальные и смените пароль.</p>
+<table class="table">
+  <thead><tr><th>Вход</th><th>Последнее обращение</th><th>Адрес</th><th>Браузер</th><th></th></tr></thead>
+  <tbody>
+    <% sessions.forEach((s) => { %>
+      <tr>
+        <td><%= fmtDateTime(s.created_at) %></td>
+        <td class="muted"><%= fmtDateTime(s.last_seen_at) %></td>
+        <td class="muted"><%= s.ip || '—' %></td>
+        <td class="muted" title="<%= s.user_agent || '' %>"><%= browser(s.user_agent) %></td>
+        <td><% if (s.current) { %><span class="tag">этот</span><% } %></td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+<% if (sessions.length > 1) { %>
+  <form method="post" action="/me/sessions/end-others" onsubmit="return confirm('Выйти на всех остальных компьютерах?')">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <button type="submit" class="btn">Выйти на остальных компьютерах</button>
+  </form>
+<% } %>
+
+<%- include('partials/footer') %>

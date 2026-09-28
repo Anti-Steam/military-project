@@ -1,0 +1,76 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const KIND = {
+    'login.ok': 'вход',
+    'login.fail': 'неудачный вход',
+    'login.locked': 'блокировка',
+    'logout': 'выход',
+    'password.change': 'смена пароля',
+    'password.fail': 'неверный прежний пароль',
+    'password.reset': 'выдан новый пароль',
+    'password.initial': 'выдан первичный пароль',
+    'user.create': 'заведена запись',
+    'user.update': 'изменены права',
+    'user.unlock': 'снята блокировка',
+    'sessions.end': 'завершены сеансы',
+  };
+  const GROUP = { login: 'входы и выходы', fail: 'отказы и блокировки', password: 'пароли', users: 'учетные записи и сеансы' };
+  const query = (extra) => new URLSearchParams(Object.entries({ ...filter, ...extra }).filter(([, x]) => x)).toString();
+%>
+
+<div class="page-head">
+  <h1>Журнал доступа</h1>
+  <a class="btn" href="/users">К учётным записям</a>
+</div>
+
+<p class="muted">
+  Журнал ведётся, чтобы можно было разобрать, кто и когда получил доступ;
+  удалять записи из него нельзя. Новые — сверху, по 200 на страницу.
+</p>
+
+<form method="get" action="/security" class="form-inline">
+  <label>с <input type="date" name="from" value="<%= filter.from %>"></label>
+  <label>по <input type="date" name="to" value="<%= filter.to %>"></label>
+  <input type="text" name="login" value="<%= filter.login %>" placeholder="учетная запись" size="16">
+  <select name="group">
+    <option value="">все события</option>
+    <% groups.forEach((g) => { %><option value="<%= g %>" <%= filter.group === g ? 'selected' : '' %>><%= GROUP[g] || g %></option><% }) %>
+  </select>
+  <button type="submit" class="btn">Показать</button>
+  <% if (filter.from || filter.to || filter.login || filter.group) { %><a class="btn btn-link" href="/security">сбросить</a><% } %>
+</form>
+
+<% if (events.length === 0) { %><p class="muted">Событий нет.</p><% } %>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Время</th>
+      <th>Событие</th>
+      <th>Учётная запись</th>
+      <th>Кто выполнил</th>
+      <th>Подробности</th>
+      <th>Адрес</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% events.forEach((e) => { %>
+      <tr class="<%= e.kind.endsWith('fail') || e.kind.endsWith('locked') ? 'row-broken' : '' %>">
+        <td class="muted"><%= fmtDateTime(e.at) %></td>
+        <td><%= KIND[e.kind] || e.kind %></td>
+        <td><%= e.user_login || e.login || '—' %></td>
+        <td class="muted"><%= e.actor_login || '—' %></td>
+        <td class="muted"><%= e.detail || '' %></td>
+        <td class="muted"><%= e.ip || '' %></td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+
+<div class="actions">
+  <% if (filter.before) { %><a class="btn" href="/security?<%= query({ before: '' }) %>">← К новым</a><% } %>
+  <% if (older) { %><a class="btn" href="/security?<%= query({ before: older }) %>">Раньше →</a><% } %>
+</div>
+
+<%- include('partials/footer') %>

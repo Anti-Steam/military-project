@@ -1,0 +1,503 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Подразделения</h1>
+  <a class="btn" href="/personnel">Строевая записка</a>
+</div>
+
+<p class="muted">
+  Структура вложенная: часть — рота — взвод — отделение. Нажмите на
+  подразделение — раскроются его личный состав по должностям (вакантные —
+  строкой «вакант») и вложенные подразделения. Правка — «изменить».
+  <% if (canTransfer) { %>
+    Человека переводят, перетащив <strong>за фамилию</strong> на вакантную строку
+    (раскройте нужное подразделение, хоть вложенное).
+  <% } %>
+  <% if (canStaff) { %>
+    Должность тянут <strong>за «⠿»</strong>: внутри подразделения — порядок, в
+    другое подразделение — перенос вместе с человеком, в корзину — удаление
+    (человек уходит за штат). Человека в корзину — за штат, должность
+    остается вакантной. Корзина появляется, когда начинаете тащить. Щелчок по названию — переименовать, «★» —
+    сделать должность командирской.
+  <% } %>
+  <% if (scoped) { %>
+    Показано закреплённое за вами подразделение.
+  <% } %>
+</p>
+<%- include('partials/sortable-hint') %>
+
+<%
+  const render = (unit, depth) => {
+    const isOpen = opened.has(unit.id) || (opened.size === 0 && depth < 1);
+%>
+  <details class="unit-node" id="unit-<%= unit.id %>" data-unit="<%= unit.id %>"
+           data-unit-name="<%= (units.find((x) => x.id === unit.id) || {}).path_name || unit.short_name %>"
+           <%= isOpen ? 'open' : '' %> <% if (depth > 0) { %>data-sort-id="<%= unit.id %>"<% } %>>
+    <summary>
+      <% if (depth > 0) { %><%- include('partials/drag-handle') %><% } %>
+      <span class="unit-name"><%= unit.short_name %></span>
+      <% if (!unit.is_active) { %><span class="muted">(выведено из применения)</span><% } %>
+      <span class="muted">
+        своих <%= unit.own_count %> · в подчинении <%= unit.total_count %>
+        <% if (unit.commander_name) { %> · командир: <%= unit.commander_name %><% } %>
+      </span>
+      <% if (!unit.positions.some((p) => p.is_commander)) { %>
+        <span class="warn-inline" title="Командир подразделения следует из штата: отметьте должность командирской («настроить»)">нет командирской должности</span>
+      <% } %>
+      <span class="type-actions">
+        <button type="button" class="btn btn-link" data-edit-toggle="edit-<%= unit.id %>">изменить</button>
+      </span>
+    </summary>
+
+    <div class="unit-body">
+      <%# Окно «изменить»: подразделение, новое вложенное и новые должности
+          сохраняются одной кнопкой; после сохранения окно снова спрятано. %>
+      <div class="unit-edit" id="edit-<%= unit.id %>" hidden>
+        <form method="post" action="/units/<%= unit.id %>" class="form">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <div class="row">
+            <label class="field">
+              <span class="field-label">Наименование</span>
+              <input type="text" name="name" value="<%= unit.name %>" required>
+            </label>
+            <label class="field">
+              <span class="field-label">Кратко</span>
+              <input type="text" name="shortName" value="<%= unit.short_name %>" required>
+            </label>
+            <% if (unit.parent_id && units.some(u => u.id === unit.parent_id)) { %>
+              <% const parent = units.find((u) => u.id === unit.parent_id); %>
+              <label class="field">
+                <span class="field-label">Входит в</span>
+                <select name="parentId" data-options="units" data-exclude="<%= unit.id %>">
+                  <option value="<%= parent.id %>" selected><%= parent.path_name || parent.short_name %></option>
+                </select>
+              </label>
+            <% } %>
+            <label class="check-field">
+              <input type="checkbox" name="isActive" <%= unit.is_active ? 'checked' : '' %>>
+              <span>применяется</span>
+            </label>
+          </div>
+
+          <div class="row">
+            <label class="field">
+              <span class="field-label">Новое вложенное подразделение</span>
+              <input type="text" name="childName" placeholder="1 отделение 2 взвода">
+            </label>
+            <label class="field">
+              <span class="field-label">Кратко</span>
+              <input type="text" name="childShort" placeholder="1 отд.">
+            </label>
+          </div>
+
+          <% if (canStaff) { %>
+            <div class="field new-positions">
+              <span class="field-label">Новые должности</span>
+              <div class="new-position-rows">
+                <input type="text" name="newPositions" placeholder="Стрелок">
+              </div>
+              <button type="button" class="btn btn-link" data-add-position>+ ещё должность</button>
+            </div>
+          <% } %>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+            <button type="button" class="btn" data-edit-toggle="edit-<%= unit.id %>">Отмена</button>
+          </div>
+        </form>
+
+        <% if (canStaff) { %>
+          <%# ВРИО командира: список и назначение подгружаются при открытии окна. %>
+          <div class="acting-box" data-acting-unit="<%= unit.id %>">
+            <strong>ВРИО командира</strong>
+            <span class="muted">загружается…</span>
+          </div>
+        <% } %>
+
+        <!-- Удалить можно только то, за что ничего не держится: прошлые
+             наряды обязаны сохранять ссылку на подразделение. -->
+        <% if (unit.parent_id) { %>
+          <form method="post" action="/units/<%= unit.id %>/delete" class="form-inline"
+                onsubmit="return confirm('Удалить подразделение «<%= unit.short_name %>»?')">
+            <input type="hidden" name="_csrf" value="<%= csrf %>">
+            <button type="submit" class="btn btn-link btn-danger">удалить пустое подразделение</button>
+          </form>
+        <% } %>
+      </div>
+
+      <%# Личный состав по должностям: строка — должность, в ней человек или
+          «вакант». Одна таблица — и штат, и люди. %>
+      <% if (unit.positions.length > 0) { %>
+        <table class="table unit-people">
+          <thead>
+            <tr>
+              <% if (canStaff) { %><th class="col-drag"></th><% } %>
+              <th class="col-num">№</th>
+              <th>Должность</th>
+              <th>Звание</th>
+              <th>Фамилия, имя, отчество</th>
+              <% if (canStaff) { %><th></th><% } %>
+            </tr>
+          </thead>
+          <tbody <% if (canStaff) { %>data-sortable="/units/<%= unit.id %>/positions/order" data-csrf="<%= csrf %>"<% } %>>
+            <% unit.positions.forEach((p, i) => { %>
+              <tr data-sort-id="<%= p.id %>" class="<%= p.employee_id ? '' : 'vacant' %>"
+                  <% if (!p.employee_id) { %>data-vacant="<%= p.id %>"<% } %>
+                  data-title="<%= p.title %>">
+                <% if (canStaff) { %>
+                  <td class="col-drag">
+                    <span class="drag-handle position-drag" draggable="true"
+                          title="Перетащите: порядок, в другое подразделение или в корзину"
+                          data-position="<%= p.id %>" data-unit="<%= unit.id %>" data-title="<%= p.title %>"
+                          data-occupant="<%= p.employee_id ? p.short_name : '' %>">⠿</span>
+                  </td>
+                <% } %>
+                <td class="col-num"><%= i + 1 %></td>
+                <td>
+                  <%= p.title %>
+                  <% if (p.is_commander) { %><span class="tag">командир</span><% } %>
+                </td>
+                <% if (p.employee_id) { %>
+                  <td><%= p.rank_name || '—' %></td>
+                  <td class="<%= canTransfer ? 'person-cell' : '' %>" <% if (canTransfer) { %>draggable="true"
+                      data-employee="<%= p.employee_id %>" data-name="<%= p.short_name %>"
+                      data-from="<%= p.title %>" title="Перетащите на вакантную должность"<% } %>>
+                    <a href="/personnel/<%= p.employee_id %>" draggable="false"><%= p.full_name %></a>
+                    <% const away = absentToday.get(p.employee_id); %>
+                    <% if (away) { %>
+                      <span class="tag tag-away" title="Отметка — в карточке человека"><%= away.reason %> <%= until(away.date_to) %></span>
+                    <% } %>
+                  </td>
+                <% } else { %>
+                  <td colspan="2" class="muted">вакант</td>
+                <% } %>
+                <% if (canStaff) { %>
+                  <td class="col-actions">
+                    <button type="button" class="btn btn-link" data-configure="<%= p.id %>" data-unit="<%= unit.id %>"
+                            data-title="<%= p.title %>" data-commander="<%= p.is_commander ? '1' : '' %>"
+                            data-occupant="<%= p.employee_id ? p.short_name : '' %>">настроить</button>
+                  </td>
+                <% } %>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <p class="muted">Штат не заведен: добавьте должности в «изменить».</p>
+      <% } %>
+
+      <%# Вложенные — отдельный список: соседи переставляются между собой,
+          перенос к другому вышестоящему — полем «Входит в». %>
+      <div data-sortable="/units/<%= unit.id %>/order" data-csrf="<%= csrf %>">
+        <% unit.children.forEach((child) => { render(child, depth + 1); }) %>
+      </div>
+    </div>
+  </details>
+<% }; %>
+
+<% tree.forEach((unit) => { render(unit, 0); }) %>
+
+<%# За штатом — одним списком под всеми подразделениями: люди вне всех
+    подразделений, без должности.
+    Оттуда их переводят за фамилию на вакантную строку. %>
+<% if (unplaced.length > 0) { %>
+  <h2 class="unplaced-head">За штатом</h2>
+  <table class="table unit-people unplaced">
+    <thead>
+      <tr><th class="col-num">№</th><th>Звание</th><th>Фамилия, имя, отчество</th></tr>
+    </thead>
+    <tbody>
+      <% unplaced.forEach((e, i) => { %>
+        <tr>
+          <td class="col-num"><%= i + 1 %></td>
+          <td><%= e.rank_name || '—' %></td>
+          <td class="<%= canTransfer ? 'person-cell' : '' %>" <% if (canTransfer) { %>draggable="true"
+              data-employee="<%= e.id %>" data-name="<%= e.short_name %>" data-from="за штатом"
+              title="Перетащите на вакантную должность"<% } %>>
+            <a href="/personnel/<%= e.id %>" draggable="false"><%= e.full_name %></a>
+            <span class="tag">за штатом</span>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<%# Перечень подразделений для «Входит в» — один на страницу (lazy-select.js). %>
+<script>
+  window.OPTION_LISTS = Object.assign(window.OPTION_LISTS || {}, {
+    units: <%- JSON.stringify(units.map((u) => ({ id: u.id, label: u.path_name || u.short_name }))).replace(/</g, '\\u003c') %>
+  });
+</script>
+
+<% if (canStaff) { %>
+  <%# Корзина видна только во время перетаскивания должности или человека. %>
+  <div class="staff-trash" id="staff-trash" hidden>
+    🗑 Корзина: должность — удалить, человека — за штат
+  </div>
+<% } %>
+
+<% if (canStaff) { %>
+  <%# Настройка должности — из ее строки: наименование, «командирская»,
+      удаление. %>
+  <dialog id="position-dialog" class="transfer-dialog">
+    <form method="post" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="unitId">
+      <input type="hidden" name="commanderField" value="1">
+      <h3>Должность</h3>
+      <label class="field">
+        <span class="field-label">Наименование</span>
+        <input type="text" name="title" required maxlength="120">
+      </label>
+      <label class="check-field">
+        <input type="checkbox" name="isCommander">
+        <span>командирская — занимающий ее командир подразделения (и его учетная запись получает доступ командира)</span>
+      </label>
+      <p class="muted" data-occupant></p>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+        <button type="button" class="btn btn-danger" data-delete>Удалить должность</button>
+        <button type="button" class="btn" data-cancel>Отмена</button>
+      </div>
+    </form>
+  </dialog>
+<% } %>
+
+<% if (canTransfer || canStaff) { %>
+  <%# Подтверждение перевода человека, переноса и удаления должности. %>
+  <dialog id="staff-dialog" class="transfer-dialog">
+    <form method="post" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <div data-fields></div>
+      <h3 data-title></h3>
+      <p data-what></p>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" data-ok></button>
+        <button type="button" class="btn" data-cancel>Отмена</button>
+      </div>
+    </form>
+  </dialog>
+<% } %>
+
+<script>
+  (function () {
+    var dialog = document.getElementById('staff-dialog');
+    var csrf = '<%= csrf %>';
+    var person = null;
+    var position = null;
+    var trashBox = document.getElementById('staff-trash');
+
+    function unitOf(node) { return node && node.closest && node.closest('.unit-node'); }
+    function clear() {
+      document.querySelectorAll('.drop-target').forEach(function (x) { x.classList.remove('drop-target'); });
+    }
+
+    // Подтверждение: действие, скрытые поля, вопрос.
+    function confirmAction(title, what, ok, action, fields) {
+      var form = dialog.querySelector('form');
+      form.action = action;
+      var holder = form.querySelector('[data-fields]');
+      holder.innerHTML = '';
+      Object.keys(fields).forEach(function (name) {
+        var input = document.createElement('input');
+        input.type = 'hidden'; input.name = name; input.value = fields[name];
+        holder.appendChild(input);
+      });
+      dialog.querySelector('[data-title]').textContent = title;
+      dialog.querySelector('[data-what]').textContent = what;
+      dialog.querySelector('[data-ok]').textContent = ok;
+      dialog.showModal();
+    }
+    if (dialog) dialog.querySelector('[data-cancel]').addEventListener('click', function () { dialog.close(); });
+
+    // Захват: общий sortable.js останавливает всплытие своего dragstart.
+    document.addEventListener('dragstart', function (event) {
+      person = null; position = null;
+      var cell = event.target.closest && event.target.closest('.person-cell');
+      var handle = event.target.closest && event.target.closest('.position-drag');
+      if (cell) {
+        person = cell.dataset;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', person.employee);
+      } else if (handle) {
+        position = handle.dataset;
+      }
+      // Корзина — только пока что-то тащат, и только за штатным человеком
+      // или должностью (человеку за штатом в корзину некуда).
+      if (trashBox && ((person && person.from !== 'за штатом') || position)) trashBox.hidden = false;
+    }, true);
+    document.addEventListener('dragend', function () {
+      clear();
+      if (trashBox) trashBox.hidden = true;
+    }, true);
+
+    document.addEventListener('dragover', function (event) {
+      // Над свернутым подразделением — раскрыть: так «проваливаются» до
+      // нужного взвода и отделения прямо во время перетаскивания.
+      var summary = (person || position) && event.target.closest && event.target.closest('summary');
+      if (summary && !summary.parentNode.open) summary.parentNode.open = true;
+      if (person) {
+        // Человека — на вакантную строку или (кадровику) в корзину.
+        var row = event.target.closest && event.target.closest('tr[data-vacant]');
+        var bin = trashBox && !trashBox.hidden && event.target.closest && event.target.closest('#staff-trash');
+        if (!row && !bin) return;
+        event.preventDefault();
+        clear(); (row || bin).classList.add('drop-target');
+      } else if (position) {
+        var trash = event.target.closest && event.target.closest('#staff-trash');
+        var node = unitOf(event.target);
+        if (!trash && (!node || node.dataset.unit === position.unit)) return;
+        event.preventDefault();
+        clear(); (trash || node).classList.add('drop-target');
+      }
+    });
+
+    document.addEventListener('drop', function (event) {
+      if (person) {
+        var bin = trashBox && !trashBox.hidden && event.target.closest && event.target.closest('#staff-trash');
+        if (bin) {
+          event.preventDefault();
+          confirmAction('За штат', person.name + ' (' + person.from + ') уйдет за штат; должность станет вакантной.',
+            'Вывести за штат', '/personnel/' + person.employee + '/release', {});
+          person = null;
+          clear();
+          return;
+        }
+        var row = event.target.closest && event.target.closest('tr[data-vacant]');
+        if (!row) return;
+        event.preventDefault();
+        var node = unitOf(row);
+        confirmAction('Перевод', person.name + ' (' + person.from + ') → «' + row.dataset.title
+          + '», ' + node.dataset.unitName + '. Прежняя должность станет вакантной.', 'Перевести',
+          '/personnel/transfer', { employeeId: person.employee, positionId: row.dataset.vacant,
+            back: '/units?open=' + node.dataset.unit + '#unit-' + node.dataset.unit });
+        person = null;
+      } else if (position) {
+        var trash = event.target.closest && event.target.closest('#staff-trash');
+        var target = unitOf(event.target);
+        if (trash) {
+          event.preventDefault();
+          confirmAction('Удаление должности', '«' + position.title + '» будет удалена.'
+            + (position.occupant ? ' ' + position.occupant + ' уйдет за штат.' : ''), 'Удалить',
+            '/positions/' + position.position + '/delete', {});
+        } else if (target && target.dataset.unit !== position.unit) {
+          event.preventDefault();
+          confirmAction('Перенос должности', '«' + position.title + '»'
+            + (position.occupant ? ' вместе с ' + position.occupant : '') + ' → ' + target.dataset.unitName + '.',
+            'Перенести', '/positions/' + position.position + '/move', { unitId: target.dataset.unit });
+        }
+        position = null;
+      }
+      clear();
+    });
+
+    // Одна форма на все мелкие действия со строками: форм по числу должностей
+    // на странице были бы сотни.
+    function send(action, fields) {
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = action;
+      fields._csrf = csrf;
+      Object.keys(fields).forEach(function (name) {
+        var input = document.createElement('input');
+        input.type = 'hidden'; input.name = name; input.value = fields[name];
+        form.appendChild(input);
+      });
+      document.body.appendChild(form);
+      form.submit();
+    }
+
+    // «настроить» в конце строки — окошко должности.
+    var settings = document.getElementById('position-dialog');
+    var current = null;
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest && event.target.closest('[data-configure]');
+      if (!button || !settings) return;
+      current = button.dataset;
+      var form = settings.querySelector('form');
+      form.action = '/positions/' + current.configure;
+      form.unitId.value = current.unit;
+      form.title.value = current.title;
+      form.isCommander.checked = Boolean(current.commander);
+      settings.querySelector('[data-occupant]').textContent = current.occupant
+        ? 'Занимает: ' + current.occupant + '. При удалении уйдет за штат.' : 'Вакантная.';
+      settings.showModal();
+      form.title.focus();
+    });
+    if (settings) {
+      settings.querySelector('[data-cancel]').addEventListener('click', function () { settings.close(); });
+      settings.querySelector('[data-delete]').addEventListener('click', function () {
+        if (!confirm('Удалить должность «' + current.title + '»?'
+          + (current.occupant ? ' ' + current.occupant + ' уйдет за штат.' : ''))) return;
+        send('/positions/' + current.configure + '/delete', {});
+      });
+    }
+
+    // «+ ещё должность» в окне «изменить».
+    document.addEventListener('click', function (event) {
+      var add = event.target.closest && event.target.closest('[data-add-position]');
+      if (!add) return;
+      var rows = add.parentNode.querySelector('.new-position-rows');
+      var input = rows.firstElementChild.cloneNode();
+      input.value = '';
+      rows.appendChild(input);
+      input.focus();
+    });
+
+    // ВРИО командира: назначенные и форма назначения. Кандидаты — люди
+    // подразделения и вложенных, предложенный системой выбран заранее.
+    function esc(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+    function loadActing(box) {
+      if (!box || box.dataset.loaded) return;
+      box.dataset.loaded = '1';
+      var unit = box.dataset.actingUnit;
+      fetch('/units/' + unit + '/acting', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.message) { box.innerHTML = '<strong>ВРИО командира</strong> <span class="muted">' + esc(data.message) + '</span>'; return; }
+          var html = '<strong>ВРИО командира</strong>';
+          html += '<p class="muted">Командир: ' + esc(data.commander || 'должность вакантна')
+            + '. На время отсутствия командира приказы подписывает ВРИО; не назначен — самый старший (предложенный).</p>';
+          (data.acting || []).forEach(function (a) {
+            html += '<form method="post" action="/acting/' + a.id + '/cancel" class="form-inline">'
+              + '<input type="hidden" name="_csrf" value="' + esc(csrf) + '">'
+              + '<span class="tag tag-duty">ВРИО</span> ' + esc(a.short_name) + ', ' + esc(a.date_from) + ' — ' + esc(a.date_to)
+              + (a.reason ? ' · ' + esc(a.reason) : '')
+              + ' <button type="submit" class="btn btn-link">отменить</button></form>';
+          });
+          html += '<form method="post" action="/units/' + unit + '/acting" class="form-inline">'
+            + '<input type="hidden" name="_csrf" value="' + esc(csrf) + '">'
+            + '<select name="employeeId" required>' + data.candidates.map(function (c) {
+              return '<option value="' + c.id + '"' + (c.id === data.suggested ? ' selected' : '') + '>'
+                + esc(c.label) + (c.id === data.suggested ? ' (предложено)' : '') + '</option>';
+            }).join('') + '</select>'
+            + ' с <input type="date" name="dateFrom" value="' + esc(data.dateFrom) + '" required>'
+            + ' по <input type="date" name="dateTo" value="' + esc(data.dateTo) + '" required>'
+            + ' <input type="text" name="reason" placeholder="основание: отпуск командира" size="22">'
+            + ' <button type="submit" class="btn">Назначить ВРИО</button></form>';
+          box.innerHTML = html;
+        })
+        .catch(function () { box.innerHTML = '<strong>ВРИО командира</strong> <span class="muted">не удалось загрузить</span>'; });
+    }
+
+    // «изменить» раскрывает окно правки и прячет его обратно.
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest && event.target.closest('[data-edit-toggle]');
+      if (!button) return;
+      event.preventDefault();
+      var panel = document.getElementById(button.getAttribute('data-edit-toggle'));
+      if (panel.hidden) {
+        panel.closest('details').open = true;
+        panel.hidden = false;
+        loadActing(panel.querySelector('[data-acting-unit]'));
+        var first = panel.querySelector('input[type="text"]');
+        if (first) first.focus();
+      } else {
+        panel.hidden = true;
+      }
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

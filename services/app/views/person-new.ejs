@@ -1,0 +1,79 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Принять на службу</h1>
+  <a class="btn" href="/people">К личному составу</a>
+</div>
+
+<form method="post" action="/people" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <div class="row">
+    <label class="field"><span class="field-label">Фамилия</span><input name="lastName" required maxlength="60"></label>
+    <label class="field"><span class="field-label">Имя</span><input name="firstName" required maxlength="60"></label>
+    <label class="field"><span class="field-label">Отчество</span><input name="middleName" maxlength="60"></label>
+  </div>
+  <div class="row">
+    <label class="field"><span class="field-label">Воинское звание</span>
+      <select name="rankId">
+        <option value="">— без звания —</option>
+        <% ranks.forEach((r) => { %><option value="<%= r.id %>"><%= r.name %></option><% }) %>
+      </select>
+    </label>
+    <label class="field"><span class="field-label">Личный номер</span><input name="personnelNumber" maxlength="30"></label>
+    <label class="field"><span class="field-label">Телефон</span><input name="phone" maxlength="30"></label>
+  </div>
+
+  <div class="field">
+    <span class="field-label">Должность</span>
+    <%# Подразделение — по уровням (рота → взвод → отделение), затем вакантная
+        должность выбранного. Не выбрано — человек заводится за штатом. %>
+    <span class="unit-steps" data-unit-steps></span>
+    <select name="positionId" data-vacancy-select>
+      <option value="">— за штат (должность позже) —</option>
+    </select>
+  </div>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Принять</button>
+    <a class="btn" href="/people">Отмена</a>
+  </div>
+</form>
+
+<script>
+  (function () {
+    var UNITS = <%- JSON.stringify(transferUnits).replace(/</g, '\\u003c') %>;
+    var VACANT = <%- JSON.stringify(vacancies.map((p) => ({ id: p.id, unit: p.unit_id, title: p.title }))).replace(/</g, '\\u003c') %>;
+    var steps = document.querySelector('[data-unit-steps]');
+    var positions = document.querySelector('[data-vacancy-select]');
+    var ids = UNITS.map(function (u) { return u.id; });
+    var children = function (id) {
+      return UNITS.filter(function (u) { return id === null ? ids.indexOf(u.parent) === -1 : u.parent === id; });
+    };
+    function showVacancies(unitId) {
+      positions.innerHTML = '';
+      positions.add(new Option('— за штат (должность позже) —', ''));
+      VACANT.filter(function (v) { return v.unit === unitId; })
+        .forEach(function (v) { positions.add(new Option(v.title, v.id)); });
+    }
+    function level(parentId, depth) {
+      while (steps.children.length > depth) steps.removeChild(steps.lastChild);
+      var items = children(parentId);
+      if (items.length === 0) return;
+      var select = document.createElement('select');
+      select.add(new Option(depth === 0 ? '— подразделение —' : '— вложенное (необязательно) —', ''));
+      items.forEach(function (u) { select.add(new Option(u.name, u.id)); });
+      select.addEventListener('change', function () {
+        var chosen = select.value ? Number(select.value) : null;
+        while (steps.children.length > depth + 1) steps.removeChild(steps.lastChild);
+        if (chosen === null) { showVacancies(parentId); return; }
+        level(chosen, depth + 1);
+        showVacancies(chosen);
+      });
+      steps.appendChild(select);
+    }
+    level(null, 0);
+  })();
+</script>
+
+<%- include('partials/footer') %>

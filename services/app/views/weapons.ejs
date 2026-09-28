@@ -1,0 +1,365 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  const KIND = { rifle: 'автомат', pistol: 'пистолет' };
+  const unitName = (id) => { const u = units.find((x) => x.id === id); return u ? (u.path_name || u.short_name) : ''; };
+  // За кем числится: закрепленное — за человеком, остальное — за командиром.
+  const holder = (w) => (w.owner_id ? w.owner_name
+    : (w.holder_id ? `за командиром: ${w.holder_name}` : 'за командиром (должность вакантна)'));
+%>
+
+<div class="page-head">
+  <h1>Оружие</h1>
+</div>
+
+<p class="muted">
+  Оружие распределено по подразделениям, как штат. Нажмите на подразделение —
+  раскроется его оружие и за кем оно числится. Незакрепленное оружие
+  подразделения числится за его командиром (как его личное). Человеку без
+  своего оружия оружие на наряд выбирают при назначении в наряд — отдельно
+  передавать ничего не нужно.
+  <% if (canAssign) { %>
+    Оружие тянут <strong>за «⠿»</strong>: внутри подразделения — порядок, на
+    другое подразделение — перемещение (закрепление снимается), на плашку
+    человека в строке «Без оружия» — закрепить за ним (плашку можно и
+    бросить на строку оружия).
+    «настроить» в конце строки — за кем закрепить.
+  <% } %>
+  <% if (canManage) { %>
+    В корзину — на склад («Свободное оружие» внизу); со склада — перетащить
+    на подразделение. Заведение, правка и списание — у вас.
+  <% } %>
+</p>
+<%- include('partials/sortable-hint') %>
+
+<% if (canManage) { %>
+  <details class="add-weapon">
+    <summary class="btn">Добавить оружие</summary>
+    <form method="post" action="/weapons" class="form-inline">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <label class="field"><span class="field-label">Наименование</span><input name="name" required placeholder="АК-74М"></label>
+      <label class="field"><span class="field-label">Заводской номер</span><input name="serialNumber" required></label>
+      <label class="field"><span class="field-label">Дата производства</span>
+        <input type="date" name="manufacturedOn" required max="<%= today() %>"></label>
+      <label class="field"><span class="field-label">Вид</span>
+        <select name="kind"><option value="rifle">автомат</option><option value="pistol">пистолет</option></select></label>
+      <label class="field"><span class="field-label">Куда</span>
+        <select name="unitId" data-options="units"><option value="">— склад (свободное) —</option></select></label>
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </form>
+  </details>
+<% } %>
+
+<%
+  const render = (unit, depth) => {
+    const isOpen = opened.has(unit.id) || (opened.size === 0 && depth < 1);
+    const count = unit.weapons.length;
+%>
+  <details class="unit-node" id="unit-<%= unit.id %>" data-unit="<%= unit.id %>"
+           data-unit-name="<%= unitName(unit.id) %>" <%= isOpen ? 'open' : '' %>>
+    <summary>
+      <span class="unit-name"><%= unit.short_name %></span>
+      <span class="muted">
+        оружия <%= count %><% if (unit.commander_name) { %> · командир: <%= unit.commander_name %><% } %>
+      </span>
+    </summary>
+    <div class="unit-body">
+      <% if (count > 0) { %>
+        <table class="table unit-people">
+          <thead>
+            <tr>
+              <% if (canAssign) { %><th class="col-drag"></th><% } %>
+              <th class="col-num">№</th><th>Вид</th><th>Наименование</th><th>Заводской номер</th>
+              <th>Год</th><th>За кем числится</th>
+              <% if (canAssign) { %><th></th><% } %>
+            </tr>
+          </thead>
+          <tbody <% if (canAssign) { %>data-sortable="/units/<%= unit.id %>/weapons/order" data-csrf="<%= csrf %>"<% } %>>
+            <% unit.weapons.forEach((w, i) => { %>
+              <tr data-sort-id="<%= w.id %>" data-weapon-row="<%= w.id %>"
+                  data-label="<%= KIND[w.kind] %> № <%= w.serial_number %>" class="<%= w.owner_id ? '' : 'vacant' %>">
+                <% if (canAssign) { %>
+                  <td class="col-drag">
+                    <span class="drag-handle weapon-drag" draggable="true" data-weapon="<%= w.id %>"
+                          data-unit="<%= unit.id %>" data-label="<%= KIND[w.kind] %> № <%= w.serial_number %>"
+                          title="Перетащите: порядок, в другое подразделение<%= canManage ? ' или в корзину (на склад)' : '' %>">⠿</span>
+                  </td>
+                <% } %>
+                <td class="col-num"><%= i + 1 %></td>
+                <td><%= KIND[w.kind] %></td>
+                <td><%= w.name %></td>
+                <td><%= w.serial_number %></td>
+                <td><%= w.year %></td>
+                <td class="<%= w.owner_id ? '' : 'muted' %>"><%= holder(w) %>
+                  <% if (w.reserved) { %><span class="tag" title="На эти даты на наряд не выдается">занято: <%= w.reserved %></span><% } %></td>
+                <% if (canAssign) { %>
+                  <td class="col-actions">
+                    <button type="button" class="btn btn-link" data-configure="<%= w.id %>"
+                            data-name="<%= w.name %>" data-serial="<%= w.serial_number %>"
+                            data-date="<%= w.manufactured_on %>" data-kind="<%= w.kind %>">настроить</button>
+                  </td>
+                <% } %>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <p class="muted">Оружия нет.</p>
+      <% } %>
+      <% if (unit.unarmed.length > 0) { %>
+        <%# Люди подразделения, за которыми оружие не числится: на плашку
+            бросают оружие за «⠿», плашку — на строку оружия. %>
+        <div class="unarmed">
+          <span class="muted">Без оружия:</span>
+          <% unit.unarmed.forEach((p) => { %>
+            <span class="person-chip" <% if (canAssign) { %>draggable="true"<% } %>
+                  data-employee="<%= p.id %>" data-unit="<%= unit.id %>" data-name="<%= p.short_name %>"
+                  title="<%= canAssign ? 'Бросьте сюда оружие или перетащите на строку оружия' : '' %>"><%= p.short_name %></span>
+          <% }) %>
+        </div>
+      <% } %>
+      <div>
+        <% unit.children.forEach((child) => { render(child, depth + 1); }) %>
+      </div>
+    </div>
+  </details>
+<% }; %>
+
+<% tree.forEach((unit) => { render(unit, 0); }) %>
+
+<% if (canManage) { %>
+  <h2 id="stock">Свободное оружие (склад)</h2>
+  <% if (stock.length === 0) { %>
+    <p class="muted">На складе оружия нет.</p>
+  <% } else { %>
+    <table class="table unit-people">
+      <thead>
+        <tr><th class="col-drag"></th><th class="col-num">№</th><th>Вид</th><th>Наименование</th>
+          <th>Заводской номер</th><th>Год</th><th></th></tr>
+      </thead>
+      <tbody>
+        <% stock.forEach((w, i) => { %>
+          <tr data-weapon-row="<%= w.id %>" data-label="<%= KIND[w.kind] %> № <%= w.serial_number %>">
+            <td class="col-drag">
+              <span class="drag-handle weapon-drag" draggable="true" data-weapon="<%= w.id %>" data-unit=""
+                    data-label="<%= KIND[w.kind] %> № <%= w.serial_number %>"
+                    title="Перетащите на подразделение">⠿</span>
+            </td>
+            <td class="col-num"><%= i + 1 %></td>
+            <td><%= KIND[w.kind] %></td>
+            <td><%= w.name %></td>
+            <td><%= w.serial_number %></td>
+            <td><%= w.year %></td>
+            <td class="col-actions">
+              <button type="button" class="btn btn-link" data-configure="<%= w.id %>" data-stock="1"
+                      data-name="<%= w.name %>" data-serial="<%= w.serial_number %>"
+                      data-date="<%= w.manufactured_on %>" data-kind="<%= w.kind %>">настроить</button>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <div class="staff-trash" id="weapon-trash" hidden>🗑 На склад — перетащите оружие сюда</div>
+<% } %>
+
+<script>
+  window.OPTION_LISTS = Object.assign(window.OPTION_LISTS || {}, {
+    units: <%- JSON.stringify(units.map((u) => ({ id: u.id, label: u.path_name || u.short_name }))).replace(/</g, '\\u003c') %>
+  });
+</script>
+
+<% if (canAssign) { %>
+  <dialog id="weapon-confirm" class="transfer-dialog">
+    <form method="post" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="unitId">
+      <input type="hidden" name="employeeId">
+      <h3 data-title></h3>
+      <p data-what></p>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" data-ok></button>
+        <button type="button" class="btn" data-cancel>Отмена</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="weapon-settings" class="transfer-dialog">
+    <form method="post" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <h3>Оружие</h3>
+      <label class="field" data-owner-field>
+        <span class="field-label">Закреплено за</span>
+        <select name="employeeId"><option value="">— за командиром подразделения —</option></select>
+      </label>
+      <% if (canManage) { %>
+        <input type="hidden" name="editFields" value="1">
+        <label class="field"><span class="field-label">Наименование</span><input name="name" required></label>
+        <label class="field"><span class="field-label">Заводской номер</span><input name="serialNumber" required></label>
+        <label class="field"><span class="field-label">Дата производства</span><input type="date" name="manufacturedOn" required></label>
+        <label class="field"><span class="field-label">Вид</span>
+          <select name="kind"><option value="rifle">автомат</option><option value="pistol">пистолет</option></select></label>
+      <% } %>
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+        <% if (canManage) { %><button type="button" class="btn btn-danger" data-decommission>Списать</button><% } %>
+        <button type="button" class="btn" data-cancel>Отмена</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (function () {
+      var csrf = '<%= csrf %>';
+      var confirmBox = document.getElementById('weapon-confirm');
+      var settings = document.getElementById('weapon-settings');
+      var trash = document.getElementById('weapon-trash');
+      var dragged = null;
+
+      function clear() {
+        document.querySelectorAll('.drop-target').forEach(function (x) { x.classList.remove('drop-target'); });
+      }
+      function send(action, fields) {
+        var form = document.createElement('form');
+        form.method = 'post'; form.action = action;
+        fields._csrf = csrf;
+        Object.keys(fields).forEach(function (k) {
+          var input = document.createElement('input');
+          input.type = 'hidden'; input.name = k; input.value = fields[k];
+          form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+      }
+      function ask(title, what, ok, weapon, unitId, employeeId) {
+        var form = confirmBox.querySelector('form');
+        form.action = '/weapons/' + weapon + (employeeId ? '/give' : '/move');
+        form.unitId.value = unitId || '';
+        form.employeeId.value = employeeId || '';
+        confirmBox.querySelector('[data-title]').textContent = title;
+        confirmBox.querySelector('[data-what]').textContent = what;
+        confirmBox.querySelector('[data-ok]').textContent = ok;
+        confirmBox.showModal();
+      }
+      confirmBox.querySelector('[data-cancel]').addEventListener('click', function () { confirmBox.close(); });
+
+      // Захват: общий sortable.js останавливает всплытие своего dragstart.
+      var person = null;
+      document.addEventListener('dragstart', function (event) {
+        var handle = event.target.closest && event.target.closest('.weapon-drag');
+        var chip = event.target.closest && event.target.closest('.person-chip');
+        dragged = handle ? handle.dataset : null;
+        person = chip ? chip.dataset : null;
+        if (person) event.dataTransfer.setData('text/plain', person.employee);
+        if (dragged && trash && dragged.unit) trash.hidden = false;
+      }, true);
+
+      // Человека (плашку) — на строку оружия: выдать ему это оружие.
+      document.addEventListener('dragover', function (event) {
+        if (!person) return;
+        var row = event.target.closest && event.target.closest('[data-weapon-row]');
+        if (!row) return;
+        event.preventDefault();
+        clear(); row.classList.add('drop-target');
+      });
+      document.addEventListener('drop', function (event) {
+        if (!person) return;
+        var row = event.target.closest && event.target.closest('[data-weapon-row]');
+        if (row) {
+          event.preventDefault();
+          ask('Выдать оружие', row.dataset.label + ' → ' + person.name
+            + '. Оружие другого подразделения переедет в его подразделение.', 'Закрепить',
+            row.dataset.weaponRow, '', person.employee);
+        }
+        person = null;
+        clear();
+      });
+      document.addEventListener('dragend', function () {
+        clear();
+        if (trash) trash.hidden = true;
+      }, true);
+
+      document.addEventListener('dragover', function (event) {
+        if (!dragged) return;
+        var summary = event.target.closest && event.target.closest('summary');
+        if (summary && !summary.parentNode.open) summary.parentNode.open = true;
+        // Оружие — на плашку человека: закрепить за ним.
+        var chip = event.target.closest && event.target.closest('.person-chip');
+        if (chip) { event.preventDefault(); clear(); chip.classList.add('drop-target'); return; }
+        var bin = trash && !trash.hidden && event.target.closest('#weapon-trash');
+        var node = event.target.closest && event.target.closest('.unit-node');
+        if (!bin && (!node || node.dataset.unit === dragged.unit)) return;
+        event.preventDefault();
+        clear(); (bin || node).classList.add('drop-target');
+      });
+
+      document.addEventListener('drop', function (event) {
+        if (!dragged) return;
+        var chip = event.target.closest && event.target.closest('.person-chip');
+        if (chip) {
+          event.preventDefault();
+          ask('Выдать оружие', dragged.label + ' → ' + chip.dataset.name
+            + (chip.dataset.unit !== dragged.unit ? '. Оружие переедет в его подразделение.' : '.'), 'Закрепить',
+            dragged.weapon, '', chip.dataset.employee);
+          dragged = null; clear();
+          return;
+        }
+        var bin = trash && !trash.hidden && event.target.closest('#weapon-trash');
+        var node = event.target.closest && event.target.closest('.unit-node');
+        if (bin) {
+          event.preventDefault();
+          ask('На склад', dragged.label + ' уйдет на склад (в свободное); закрепление снимется.', 'На склад',
+            dragged.weapon, '');
+        } else if (node && node.dataset.unit !== dragged.unit) {
+          event.preventDefault();
+          ask('Перемещение оружия', dragged.label + ' → ' + node.dataset.unitName
+            + '. Закрепление за человеком снимется — числится за командиром.', 'Переместить',
+            dragged.weapon, node.dataset.unit);
+        }
+        dragged = null;
+        clear();
+      });
+
+      // «настроить»: за кем закрепить (люди подразделения — по запросу),
+      // при полном доступе — правка и списание.
+      var current = null;
+      document.addEventListener('click', function (event) {
+        var button = event.target.closest && event.target.closest('[data-configure]');
+        if (!button) return;
+        current = button.dataset;
+        var form = settings.querySelector('form');
+        form.action = '/weapons/' + current.configure;
+        // form.name — имя самой формы; поле берется через elements.
+        var field = function (n) { return form.elements.namedItem(n); };
+        if (field('serialNumber')) {
+          field('name').value = current.name; field('serialNumber').value = current.serial;
+          field('manufacturedOn').value = current.date; field('kind').value = current.kind;
+        }
+        var ownerField = settings.querySelector('[data-owner-field]');
+        var select = form.employeeId;
+        select.innerHTML = '<option value="">— за командиром подразделения —</option>'
+          + (<%= canManage ? 'true' : 'false' %> ? '<option value="stock">— вынести на склад —</option>' : '');
+        ownerField.hidden = Boolean(current.stock);
+        if (!current.stock) {
+          fetch('/weapons/' + current.configure + '/people', { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              (data.people || []).forEach(function (p) {
+                select.add(new Option(p.label, p.id, false, p.id === data.owner));
+              });
+            });
+        }
+        settings.showModal();
+      });
+      settings.querySelector('[data-cancel]').addEventListener('click', function () { settings.close(); });
+      var decommission = settings.querySelector('[data-decommission]');
+      if (decommission) decommission.addEventListener('click', function () {
+        if (!confirm('Списать оружие № ' + current.serial + '? Оно уйдет из учета подразделений.')) return;
+        send('/weapons/' + current.configure, { action: 'decommission' });
+      });
+    })();
+  </script>
+<% } %>
+
+<%- include('partials/footer') %>

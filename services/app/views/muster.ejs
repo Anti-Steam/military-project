@@ -1,0 +1,228 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  // Состояние человека на выбранную дату. Причина ОДНА, и порядок разбора
+  // задан разделом 9.2: приказ об убытии сильнее наряда, наряд сильнее
+  // отсыпного. Тот же порядок применяет расчет записки — здесь он только
+  // оформляется.
+  const stateOf = (e) => {
+    if (e.absentReason) {
+      return { kind: 'order', html: `<span class="warn-inline">${e.absentReason}</span>` };
+    }
+    if (e.onDuty) {
+      return { kind: 'duty', html: `<span class="tag tag-duty">в наряде: ${e.onDuty}</span>` };
+    }
+    if (e.resting) {
+      return { kind: 'rest', html: `<span class="tag tag-rest">отсыпной после: ${e.resting}</span>` };
+    }
+    const note = e.justRested
+      ? ` <span class="tag tag-just-rest">● вышел из отсыпного (${e.justRested})</span>` : '';
+    return { kind: 'present', html: `<span class="muted">налицо</span>${note}` };
+  };
+
+  const t = report.total;
+  const absentTotal = report.columns.reduce((n, c) => n + t[c.key], 0);
+%>
+
+<div class="page-head">
+  <h1>Строевая записка</h1>
+  <form method="get" action="/personnel" class="cal-filter">
+    <label class="field-inline">
+      <span class="field-label">На дату</span>
+      <input type="date" name="date" value="<%= onDate %>" onchange="this.form.submit()">
+    </label>
+    <noscript><button type="submit" class="btn">Показать</button></noscript>
+  </form>
+  <a class="btn btn-primary" href="/personnel/print?date=<%= onDate %>" target="_blank">Печать</a>
+</div>
+
+<p class="muted">
+  Записка подается накануне, поэтому открывается на <strong>завтрашние</strong>
+  сутки — <%= fmtDay(onDate) %><% if (onDate === today) { %> (сегодня)<% } %>.
+  Наряд и отсыпной считаются по назначениям и руками не вносятся.
+  <% if (scoped) { %>
+    Показано закрепленное за вами подразделение вместе со всеми вложенными.
+  <% } %>
+</p>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-value"><%= report.staffTotal === null ? '—' : report.staffTotal %></div>
+    <div class="card-label">по штату</div>
+  </div>
+  <div class="card">
+    <div class="card-value"><%= t.listed %></div>
+    <div class="card-label">по списку</div>
+  </div>
+  <div class="card card-accent">
+    <div class="card-value"><%= t.present %></div>
+    <div class="card-label">налицо</div>
+  </div>
+  <div class="card">
+    <div class="card-value"><%= absentTotal %></div>
+    <div class="card-label">отсутствуют</div>
+  </div>
+  <div class="card">
+    <div class="card-value"><%= t.duty %></div>
+    <div class="card-label">в наряде<% if (t.resting) { %>, в отсыпном <%= t.resting %><% } %></div>
+  </div>
+  <div class="card">
+    <!-- Отсыпной сидит в той же графе «Прочее», но причина у него другая:
+         в карте «по приказам» ему не место. -->
+    <div class="card-value"><%= t.vacation + t.trip + t.leave + t.other - t.resting %></div>
+    <div class="card-label">по приказам<% if (t.sick) { %>, больных <%= t.sick %><% } %></div>
+  </div>
+</div>
+
+<!-- Графы — по приложению № 10 к Уставу внутренней службы ВС РФ. -->
+<table class="table muster-table">
+  <thead>
+    <tr>
+      <th class="col-num">№</th>
+      <th>Подразделение</th>
+      <th class="col-n">По штату</th>
+      <th class="col-n">По списку</th>
+      <th class="col-n">Налицо</th>
+      <% report.columns.forEach((c) => { %>
+        <th class="col-n"><%= c.name %></th>
+      <% }) %>
+    </tr>
+  </thead>
+  <tbody>
+    <%
+      // Нумеруются только основные строки: вложенные — их разбор, а не
+      // самостоятельные пункты записки.
+      let no = 0;
+    %>
+    <% report.lines.forEach((row) => { %>
+      <% if (row.level === 0) { no += 1; } %>
+      <tr class="<%= row.level === 0 ? 'muster-top' : 'muster-child' %>"
+          <% if (row.level === 0) { %>data-unit="<%= row.id %>"<% } %>
+          <% if (row.level > 0) { %>data-parent="<%= row.parentId %>" hidden<% } %>>
+        <td class="col-num"><%= row.level === 0 ? no : '' %></td>
+        <td class="muster-name">
+          <% if (row.level === 0) { %>
+            <% if (row.hasChildren) { %>
+              <button type="button" class="muster-toggle" data-unit="<%= row.id %>"
+                      aria-expanded="false" title="Показать вложенные подразделения">+</button>
+            <% } else { %>
+              <span class="muster-toggle-empty"></span>
+            <% } %>
+            <strong><%= row.name %></strong>
+          <% } else { %>
+            <span class="muster-sub"><%= row.name %></span>
+          <% } %>
+        </td>
+        <td class="col-n"><%= row.staff === null ? '—' : row.staff %></td>
+        <td class="col-n"><%= row.sum.listed %></td>
+        <td class="col-n"><strong><%= row.sum.present %></strong></td>
+        <% report.columns.forEach((c) => { %>
+          <td class="col-n <%= row.sum[c.key] ? '' : 'muster-zero' %>"><%= row.sum[c.key] || '' %></td>
+        <% }) %>
+      </tr>
+    <% }) %>
+  </tbody>
+  <tfoot>
+    <tr>
+      <td></td>
+      <td><strong>Всего</strong></td>
+      <td class="col-n"><strong><%= report.staffTotal === null ? '—' : report.staffTotal %></strong></td>
+      <td class="col-n"><strong><%= t.listed %></strong></td>
+      <td class="col-n"><strong><%= t.present %></strong></td>
+      <% report.columns.forEach((c) => { %>
+        <td class="col-n"><strong><%= t[c.key] || '' %></strong></td>
+      <% }) %>
+    </tr>
+  </tfoot>
+</table>
+
+<p class="muted">
+  В графе «Наряд» — заступившие. Отсыпной и больничный своих граф в форме не
+  имеют и учтены в «Прочем»:
+  <% if (t.resting) { %>отсыпной у <%= t.resting %><% } %><%
+  %><% if (t.resting && t.sick) { %>, <% } %><%
+  %><% if (t.sick) { %>больных <%= t.sick %><% } %><%
+  %><% if (!t.resting && !t.sick) { %>на эти сутки таких нет<% } %>.
+  Подразделения с вложенными разворачиваются кнопкой «+».
+  <% if (!report.balanced) { %>
+    <span class="warn-inline">Итог не сходится со списком — это ошибка расчета, сообщите о ней.</span>
+  <% } %>
+</p>
+
+<h2>Отсутствующие</h2>
+
+<% if (report.absent.length === 0) { %>
+  <p class="muted">Отсутствующих нет: весь личный состав налицо.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th class="col-num">№</th>
+        <th>Воинское звание</th>
+        <th>Фамилия, имя, отчество</th>
+        <th>Подразделение</th>
+        <th>Причина отсутствия</th>
+        <th>Время отсутствия</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% report.absent.forEach((a, i) => { %>
+        <tr>
+          <td class="col-num"><%= i + 1 %></td>
+          <td><%= a.rank %></td>
+          <td><a href="/personnel/<%= a.id %>"><%= a.name %></a></td>
+          <td class="muted" title="<%= a.path %>"><%= a.unit %></td>
+          <td>
+            <%= a.reason %>
+            <% if (a.conflict) { %>
+              <span class="warn-inline">назначен в наряд, хотя убыл по приказу</span>
+            <% } %>
+          </td>
+          <td class="muted">
+            <% if (a.from === a.to) { %>
+              <%= fmtDay(a.from) %>
+            <% } else { %>
+              с <%= fmtDay(a.from) %><%= a.to === 'infinity' ? ', без срока' : ' по ' + fmtDay(a.to) %>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<div class="actions">
+  <a class="btn btn-primary" href="/personnel/roster?date=<%= onDate %>">
+    Личный состав по подразделениям
+  </a>
+  <span class="muted">
+    Список открывается отдельной страницей: на нем полторы сотни человек, и
+    держать его вместе с запиской значит замедлять обе.<% if (canAbsence) { %>
+    Отсутствия проставляются там.<% } %>
+  </span>
+</div>
+
+<noscript>
+  <!-- Без сценариев вложенные строки показываются сразу: лучше длинная
+       таблица, чем недоступные числа. -->
+  <style>.muster-child[hidden] { display: table-row !important; }</style>
+</noscript>
+
+<script>
+  // Разворот подразделения: основные числа читаются без вложенности, а
+  // разбор по взводам открывается тому, кому он нужен.
+  (function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.muster-toggle'), function (button) {
+      button.addEventListener('click', function () {
+        var open = button.getAttribute('aria-expanded') === 'true';
+        var rows = document.querySelectorAll('tr[data-parent="' + button.dataset.unit + '"]');
+
+        Array.prototype.forEach.call(rows, function (row) { row.hidden = open; });
+        button.setAttribute('aria-expanded', open ? 'false' : 'true');
+        button.textContent = open ? '+' : '−';
+      });
+    });
+  })();
+</script>
+
+<%- include('partials/footer') %>

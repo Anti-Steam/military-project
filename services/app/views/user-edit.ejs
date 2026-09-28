@@ -1,0 +1,201 @@
+<%- include('partials/header', { title }) %>
+
+<%
+  // Права сгруппированы по разделам: плоский список из десятка строк
+  // читается хуже, а разделы совпадают с разделами системы.
+  const sections = new Map();
+  rows.forEach((row) => {
+    if (!sections.has(row.section)) sections.set(row.section, []);
+    sections.get(row.section).push(row);
+  });
+%>
+
+<div class="page-head">
+  <h1><%= user ? `Учётная запись ${user.login}` : 'Новая учётная запись' %></h1>
+  <a class="btn" href="/users">К списку записей</a>
+</div>
+
+<% if (user) { %>
+  <dl class="props">
+    <dt>Заведена</dt>
+    <dd><%= fmtDateTime(user.created_at) %></dd>
+
+    <dt>Последний вход</dt>
+    <dd><%= user.last_login_at ? fmtDateTime(user.last_login_at) : 'не входил' %></dd>
+
+    <dt>Пароль сменён</dt>
+    <dd>
+      <%= user.password_changed_at ? fmtDateTime(user.password_changed_at) : '—' %>
+      <% if (user.must_change_password) { %>
+        <span class="tag tag-note">временный, подлежит смене</span>
+      <% } %>
+    </dd>
+  </dl>
+<% } %>
+
+<form method="post" action="<%= user ? `/users/${user.id}` : '/users' %>" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+  <div class="row">
+    <label class="field">
+      <span class="field-label">Логин</span>
+      <% if (user) { %>
+        <input type="text" value="<%= user.login %>" disabled>
+      <% } else { %>
+        <input type="text" name="login" required
+               placeholder="например: ivanov.ip"
+               pattern="[a-z][a-z0-9._-]{2,31}">
+      <% } %>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Роль</span>
+      <select name="roleCode" required>
+        <% roles.forEach((r) => { %>
+          <option value="<%= r.code %>" <%= user && user.role_code === r.code ? 'selected' : '' %>>
+            <%= r.name %>
+          </option>
+        <% }) %>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Закреплённое подразделение</span>
+      <!-- Пользователь видит и ведёт закреплённое подразделение вместе со
+           всеми вложенными. Пусто — вся часть: так работают администратор,
+           заместители и начальники служб. -->
+      <select name="scopeUnitId">
+        <option value="">— вся часть —</option>
+        <% units.forEach((u) => { %>
+          <option value="<%= u.id %>" <%= user && user.scope_unit_id === u.id ? 'selected' : '' %>>
+            <%= u.path_name || u.short_name %>
+          </option>
+        <% }) %>
+      </select>
+      <span class="muted">Командиру подразделение обязательно — иначе он получил бы доступ ко всей части.</span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Сотрудник</span>
+      <select name="employeeId">
+        <option value="">— не связан —</option>
+        <% employees.forEach((e) => { %>
+          <option value="<%= e.id %>" <%= user && user.employee_id === e.id ? 'selected' : '' %>>
+            <%= e.short_name %> — <%= e.unit_short %>
+          </option>
+        <% }) %>
+      </select>
+    </label>
+  </div>
+
+  <% if (user) { %>
+    <label class="check-field">
+      <input type="checkbox" name="isActive" <%= user.is_active ? 'checked' : '' %>>
+      <span>Учётная запись действует</span>
+    </label>
+  <% } %>
+
+  <h2>Права доступа</h2>
+  <p class="muted">
+    «Как у роли» — обычное состояние: право следует за ролью и меняется вместе
+    с ней. «Выдать» и «Отнять» — точечные правки поверх роли; они сохраняются
+    отдельно и видны в списке записей. Запрет сильнее роли.
+  </p>
+
+  <% sections.forEach((items, section) => { %>
+    <h3><%= section %></h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="col-post">Действие</th>
+          <th>В роли</th>
+          <th>Как у роли</th>
+          <th>Выдать</th>
+          <th>Отнять</th>
+          <th>Итог</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% items.forEach((row) => { %>
+          <tr>
+            <td>
+              <strong><%= row.name %></strong>
+              <span class="muted">(<%= row.code %>)</span>
+            </td>
+            <td class="muted"><%= row.byRole ? 'есть' : 'нет' %></td>
+            <td class="col-check">
+              <input type="radio" name="perm_<%= row.code %>" value="role"
+                     <%= row.override === null ? 'checked' : '' %>>
+            </td>
+            <td class="col-check">
+              <input type="radio" name="perm_<%= row.code %>" value="grant"
+                     <%= row.override === true ? 'checked' : '' %>>
+            </td>
+            <td class="col-check">
+              <input type="radio" name="perm_<%= row.code %>" value="revoke"
+                     <%= row.override === false ? 'checked' : '' %>>
+            </td>
+            <td>
+              <% if (row.effective) { %>
+                <span class="tag">разрешено</span>
+              <% } else { %>
+                <span class="muted">запрещено</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% }) %>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">
+      <%= user ? 'Сохранить' : 'Завести запись и выдать пароль' %>
+    </button>
+    <a class="btn" href="/users">Отмена</a>
+  </div>
+</form>
+
+<% if (user) { %>
+  <!-- Пароль администратору неизвестен: его можно только заменить новым
+       временным. Это и есть причина, по которой рабочий пароль знает
+       только владелец записи. -->
+  <div class="actions">
+    <form method="post" action="/users/<%= user.id %>/reset">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button type="submit" class="btn">Выдать новый временный пароль</button>
+    </form>
+  </div>
+
+  <h2 id="sessions">Сеансы</h2>
+  <% if (sessions.length === 0) { %>
+    <p class="muted">Сейчас не вошел ни на одном компьютере.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Вход</th><th>Последнее обращение</th><th>Адрес</th><th>Браузер</th></tr></thead>
+      <tbody>
+        <% sessions.forEach((s) => { %>
+          <tr>
+            <td><%= fmtDateTime(s.created_at) %><% if (s.current) { %> <span class="tag">ваш текущий</span><% } %></td>
+            <td class="muted"><%= fmtDateTime(s.last_seen_at) %></td>
+            <td class="muted"><%= s.ip || '—' %></td>
+            <td class="muted"><%= String(s.user_agent || '—').slice(0, 80) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+    <!-- Потерян пропуск, оставлен вход на чужом компьютере: выйти везде. -->
+    <form method="post" action="/users/<%= user.id %>/sessions/end"
+          onsubmit="return confirm('Завершить все сеансы <%= user.login %>? Войти придется заново.')">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button type="submit" class="btn">Завершить все сеансы</button>
+    </form>
+  <% } %>
+<% } %>
+
+<p class="muted">
+  Изменение роли или прав завершает все сессии этой учётной записи: работа
+  продолжается с новым набором прав, а не с тем, что был при входе.
+</p>
+
+<%- include('partials/footer') %>

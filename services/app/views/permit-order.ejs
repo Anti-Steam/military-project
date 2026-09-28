@@ -1,0 +1,315 @@
+<%- include('partials/header', { title }) %>
+
+<%- include('partials/orders-tabs', { tabs }) %>
+
+<div class="page-head">
+  <h1>Приказ № <%= order.number %></h1>
+  <a class="btn" href="<%= { absence: '/orders/absences', other: '/orders/other' }[order.kind] || '/permits' %>">
+    <%= { absence: 'К приказам об отсутствии', other: 'К прочим приказам' }[order.kind] || 'К приказам на допуск' %>
+  </a>
+  <% if (order.pdf_path) { %>
+    <a class="btn btn-primary" href="/permits/orders/<%= order.id %>/pdf" target="_blank">
+      Открыть приказ
+    </a>
+  <% } %>
+  <% if (canManage && order.file_path && !currentUser.scope_unit_id) { %>
+    <%# Разбор: система читает приказ и предлагает, кому что — на проверку. %>
+    <a class="btn" href="/permits/orders/<%= order.id %>/parse">Разобрать приказ</a>
+  <% } %>
+</div>
+
+<dl class="props">
+  <% if (order.kind === 'permit') { %>
+    <dt>Направление</dt>
+    <dd><%= order.direction_name %></dd>
+  <% } else if (order.kind === 'other') { %>
+    <dt>Вид</dt>
+    <dd><%= order.profile_name %> <span class="muted">(что делать с людьми — задано видом в «Словаре разбора»)</span></dd>
+  <% } else { %>
+    <dt>Вид</dt>
+    <dd>приказ об отсутствии (отпуск, командировка, прочее)</dd>
+  <% } %>
+
+  <dt>Издан</dt>
+  <dd><%= fmtDay(order.issued_on) %> <span class="muted">(<%= order.year %> год)</span></dd>
+
+  <dt>Наименование</dt>
+  <dd><%= order.title || '—' %></dd>
+
+  <dt>Файл</dt>
+  <dd>
+    <% if (order.pdf_path) { %>
+      <a href="/permits/orders/<%= order.id %>/pdf" target="_blank">приказ в PDF</a>
+      <% if (order.file_path && order.file_path !== order.pdf_path) { %>
+        · <a href="/permits/orders/<%= order.id %>/file">оригинал (<%= order.file_name %>)</a>
+      <% } %>
+      <% if (order.file_size) { %>
+        <span class="muted"><%= Math.max(1, Math.round(order.file_size / 1024)) %> КБ</span>
+      <% } %>
+    <% } else if (order.file_path) { %>
+      <span class="warn-inline">PDF не построен</span>
+      <a href="/permits/orders/<%= order.id %>/file">оригинал (<%= order.file_name %>)</a>
+    <% } else { %>
+      <span class="muted">не приложен</span>
+    <% } %>
+  </dd>
+
+  <% if (order.pdf_error) { %>
+    <dt>Почему нет PDF</dt>
+    <dd><span class="warn-inline"><%= order.pdf_error %></span></dd>
+  <% } %>
+
+  <% if (order.kind === 'permit') { %>
+    <dt>Допусков по приказу</dt>
+    <dd><%= order.permits %></dd>
+  <% } else { %>
+    <dt>Отмечено отсутствий</dt>
+    <dd><%= order.absences %></dd>
+  <% } %>
+  <% if (order.kind === 'other') { %>
+    <dt>Занято оружия</dt>
+    <dd><%= order.reservations %></dd>
+  <% } %>
+
+  <% if (order.source === 'import') { %>
+    <dt>Происхождение</dt>
+    <dd><span class="tag">разобран из файла</span> <%= order.parsed_at || '' %></dd>
+  <% } %>
+</dl>
+
+<% if (order.pdf_path) { %>
+  <!-- Сам приказ тут же: открывать его отдельной вкладкой ради одного
+       взгляда — лишнее движение. -->
+  <iframe class="doc-view" src="/permits/orders/<%= order.id %>/pdf" title="Приказ № <%= order.number %>"></iframe>
+<% } %>
+
+<% if (order.kind !== 'permit') { %>
+  <h2>Кто отсутствует по приказу</h2>
+  <p class="muted">
+    Отметка — в карточке человека («Отсутствия»): выберите этот приказ, и
+    основание подставится само.
+  </p>
+  <% if (absences.length === 0) { %>
+    <p class="muted">Никто не отмечен.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Кто</th><th>Причина</th><th>С</th><th>По</th></tr></thead>
+      <tbody>
+        <% absences.forEach((a) => { %>
+          <tr>
+            <td><a href="/personnel/<%= a.employee_id %>#absences"><%= a.person %></a></td>
+            <td><%= a.reason %></td>
+            <td><%= fmtDay(a.date_from) %></td>
+            <td><%= fmtDay(a.date_to) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+<% } %>
+<% if (order.kind === 'permit' || permits.length > 0) { %>
+<h2>Кого допустил приказ</h2>
+
+<% if (permits.length === 0) { %>
+  <p class="muted">По приказу пока никому не выдано допусков.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th class="col-num">№</th>
+        <th>Звание, фамилия</th>
+        <th>Подразделение</th>
+        <th>Допуск</th>
+        <th>Действует до</th>
+        <th>Состояние</th>
+        <% if (canManage) { %><th></th><% } %>
+      </tr>
+    </thead>
+    <tbody>
+      <% permits.forEach((p, i) => { %>
+        <tr class="<%= p.status === 'active' ? '' : 'row-inactive' %>">
+          <td class="col-num"><%= i + 1 %></td>
+          <td><a href="/personnel/<%= p.employee_id %>"><%= p.short_name %></a></td>
+          <td class="muted"><%= p.unit_short %></td>
+          <td><%= p.permit_name %></td>
+          <td class="muted"><%= p.expires_at ? fmtDay(p.expires_at) : 'бессрочно' %></td>
+          <td>
+            <% if (p.status === 'active') { %>
+              <span class="muted">действует</span>
+            <% } else if (p.status === 'suspended') { %>
+              <span class="warn-inline">приостановлен</span>
+            <% } else { %>
+              <span class="warn-inline">отозван</span>
+            <% } %>
+          </td>
+          <% if (canManage) { %>
+            <td>
+              <form method="post" action="/permits/<%= p.id %>/status" class="form-inline">
+                <input type="hidden" name="_csrf" value="<%= csrf %>">
+                <input type="hidden" name="back" value="/permits/orders/<%= order.id %>">
+                <select name="status">
+                  <option value="active" <%= p.status === 'active' ? 'selected' : '' %>>действует</option>
+                  <option value="suspended" <%= p.status === 'suspended' ? 'selected' : '' %>>приостановлен</option>
+                  <option value="revoked" <%= p.status === 'revoked' ? 'selected' : '' %>>отозван</option>
+                </select>
+                <button type="submit" class="btn btn-link">сохранить</button>
+              </form>
+            </td>
+          <% } %>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<% } %>
+
+<% if (order.kind === 'other') { %>
+  <h2>Занятое по приказу оружие</h2>
+  <p class="muted">На эти даты оружие не выдается на наряд. Снять занятость — если приказ отменили или изменили.</p>
+  <% if (reservations.length === 0) { %>
+    <p class="muted">Оружие не занято.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>Оружие</th><th>За кем</th><th>С</th><th>По</th><% if (canManage) { %><th></th><% } %></tr></thead>
+      <tbody>
+        <% reservations.forEach((r) => { %>
+          <tr>
+            <td><%= r.name %> № <%= r.serial_number %></td>
+            <td><% if (r.employee_id) { %><a href="/personnel/<%= r.employee_id %>"><%= r.person %></a><% } else { %>—<% } %></td>
+            <td><%= fmtDay(r.date_from) %></td>
+            <td><%= fmtDay(r.date_to) %></td>
+            <% if (canManage) { %>
+              <td>
+                <form method="post" action="/weapons/reservations/<%= r.id %>/cancel" class="form-inline"
+                      onsubmit="return confirm('Снять занятость оружия № <%= r.serial_number %>?')">
+                  <input type="hidden" name="_csrf" value="<%= csrf %>">
+                  <input type="hidden" name="back" value="/permits/orders/<%= order.id %>">
+                  <button type="submit" class="btn btn-link btn-danger">снять</button>
+                </form>
+              </td>
+            <% } %>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+<% } %>
+
+<% if (canManage) { %>
+  <% if (order.kind === 'permit') { %>
+  <h3>Выдать допуск по этому приказу</h3>
+
+  <form method="post" action="/permits/grant" class="form-inline">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="orderId" value="<%= order.id %>">
+    <input type="hidden" name="back" value="/permits/orders/<%= order.id %>">
+
+    <select name="employeeId" required>
+      <option value="">— человек —</option>
+      <% employees.forEach((e) => { %>
+        <option value="<%= e.id %>"><%= e.short_name %> — <%= e.unit_short %></option>
+      <% }) %>
+    </select>
+
+    <select name="permitTypeId" required>
+      <option value="">— к чему допускает —</option>
+      <% permitTypes.forEach((t) => { %>
+        <option value="<%= t.id %>"><%= t.name %></option>
+      <% }) %>
+    </select>
+
+    <label class="field-inline">
+      <span class="field-label">действует до</span>
+      <input type="date" name="expiresAt">
+    </label>
+
+    <button type="submit" class="btn btn-primary">Выдать</button>
+  </form>
+
+  <p class="muted">
+    Дата выдачи берется из приказа — <%= fmtDay(order.issued_on) %>. Пустой
+    срок означает бессрочный допуск.
+  </p>
+  <% } %>
+
+  <h2>Сведения о приказе</h2>
+
+  <form method="post" action="/permits/orders/<%= order.id %>" class="form">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <div class="row">
+      <% if (order.kind === 'permit') { %>
+      <label class="field">
+        <span class="field-label">Направление</span>
+        <select name="directionId">
+          <% directions.forEach((d) => { %>
+            <option value="<%= d.id %>" <%= d.id === order.direction_id ? 'selected' : '' %>>
+              <%= d.name %>
+            </option>
+          <% }) %>
+        </select>
+      </label>
+      <% } %>
+
+      <label class="field">
+        <span class="field-label">Номер</span>
+        <input type="text" name="number" value="<%= order.number %>" required>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Дата издания</span>
+        <input type="date" name="issuedOn" value="<%= order.issued_on %>" required>
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Наименование</span>
+      <input type="text" name="title" value="<%= order.title || '' %>">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Примечание</span>
+      <input type="text" name="note" value="<%= order.note || '' %>">
+    </label>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </div>
+  </form>
+
+  <h3>Файл приказа</h3>
+
+  <form method="post" action="/permits/orders/<%= order.id %>/file" class="form"
+        enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <label class="field">
+      <span class="field-label"><%= order.file_path ? 'Заменить файл' : 'Приложить файл' %></span>
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.png" required>
+      <span class="muted">
+        PDF, документ Word или скан (скачивается без просмотра PDF), не больше <%= maxSize %> МБ. Word
+        пересохраняется в PDF; прежний файл заменяется.
+      </span>
+    </label>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Загрузить</button>
+    </div>
+  </form>
+
+  <h3>Удаление приказа</h3>
+  <% if (order.permits > 0) { %>
+    <p class="warn">
+      По приказу выдано допусков: <%= order.permits %>. Он не удаляется —
+      допуск без основания проверить нечем. История сохраняется и после отзыва допусков.
+    </p>
+  <% } else if (order.absences > 0 || order.reservations > 0) { %>
+    <p class="warn">По приказу отмечены отсутствия или занято оружие — он не удаляется, это его основание.</p>
+  <% } else { %>
+    <form method="post" action="/permits/orders/<%= order.id %>/delete"
+          onsubmit="return confirm('Удалить приказ № <%= order.number %> вместе с файлом?')">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <button type="submit" class="btn">Удалить приказ</button>
+    </form>
+  <% } %>
+<% } %>
+
+<%- include('partials/footer') %>

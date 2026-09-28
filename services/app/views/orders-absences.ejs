@@ -1,0 +1,64 @@
+<%- include('partials/header', { title }) %>
+<%- include('partials/orders-tabs', { tabs }) %>
+
+<div class="page-head">
+  <h1>Приказы об отсутствии</h1>
+</div>
+
+<p class="muted">
+  Отпуска, командировки и прочие отсутствия — по годам издания. Приказ
+  открывается PDF-ом. Отмечая отсутствие в карточке человека, выберите
+  приказ из этого перечня — основание подставится само, а в приказе будет
+  видно, кто по нему отсутствует.
+</p>
+
+<% if (years.length === 0) { %>
+  <p class="muted">Приказов пока нет.</p>
+<% } %>
+
+<% years.forEach(([year, orders]) => { %>
+  <details class="year-box">
+  <summary><span class="permit-year"><%= year %></span> <span class="muted">приказов <%= orders.length %></span></summary>
+  <table class="table">
+    <thead><tr><th>Приказ</th><th>Издан</th><th>Наименование</th><th>Отмечено</th><th>Файл</th></tr></thead>
+    <tbody>
+      <% orders.forEach((o) => { %>
+        <tr>
+          <td><a href="/permits/orders/<%= o.id %>">№ <%= o.number %></a></td>
+          <td class="muted"><%= fmtDay(o.issued_on) %></td>
+          <td><%= o.title || '—' %></td>
+          <td class="muted"><%= o.absences %></td>
+          <td>
+            <% if (o.pdf_path) { %><a href="/permits/orders/<%= o.id %>/pdf" target="_blank">открыть PDF</a>
+            <% } else if (o.file_path) { %><span class="warn-inline">PDF не построен</span>
+            <% } else { %><span class="muted">не приложен</span><% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  </details>
+<% }) %>
+
+<% if (canManage) { %>
+  <h2>Новый приказ об отсутствии</h2>
+  <form method="post" action="/permits/orders" class="form" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <input type="hidden" name="kind" value="absence">
+    <div class="row">
+      <label class="field"><span class="field-label">Номер приказа</span>
+        <input type="text" name="number" required placeholder="112"></label>
+      <label class="field"><span class="field-label">Дата издания</span>
+        <input type="date" name="issuedOn" required></label>
+    </div>
+    <label class="field"><span class="field-label">Наименование</span>
+      <input type="text" name="title" placeholder="Об убытии в командировку"></label>
+    <label class="field"><span class="field-label">Файл приказа</span>
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.png">
+      <span class="muted">PDF, документ Word или скан, не больше <%= maxSize %> МБ. Word пересохраняется в PDF.</span></label>
+    <label class="field"><span class="field-label">Примечание</span><input type="text" name="note"></label>
+    <div class="actions"><button type="submit" class="btn btn-primary">Завести приказ</button></div>
+  </form>
+<% } %>
+
+<%- include('partials/footer') %>

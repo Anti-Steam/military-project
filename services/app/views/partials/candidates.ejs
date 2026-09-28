@@ -1,0 +1,95 @@
+<%
+  // Фрагмент вставляется в форму создания наряда. Общий каркас страницы
+  // сюда не подключается.
+  //
+  // На каждый пост назначается один человек, поэтому пост представлен
+  // выпадающим списком, а не набором флажков.
+%>
+<div class="candidates-head">
+  <div>
+    <strong><%= dutyType.code %></strong> — <%= dutyType.name %><br>
+    <span class="muted">
+      заступление <%= fmtDateTime(period.startsAt) %>,
+      сдача <%= fmtDateTime(period.endsAt) %>
+    </span>
+  </div>
+  <div class="counter">
+    Постов: <strong><%= posts.length %></strong>
+    <% if (unfilled > 0) { %>
+      <span class="warn-inline">некого назначить: <%= unfilled %></span>
+    <% } %>
+    <% if (restingCount > 0) { %>
+      <br><span class="muted">исключено по отсыпному: <%= restingCount %></span>
+    <% } %>
+    <% if (justRestedCount > 0) { %>
+      <br><span class="just-rested-note">● сразу после отсыпного: <%= justRestedCount %></span>
+    <% } %>
+  </div>
+</div>
+
+<% if (period.noSchedule) { %>
+  <p class="warn">
+    Для выбранного дня недели расписание многодневной смены не задано.
+    Продолжительность принята равной 3 суткам — проверьте дату сдачи.
+  </p>
+<% } %>
+
+<p class="muted">
+  Общие допуски, обязательные для всех постов:
+  <% generalPermits.forEach((p, i) => { %><%= i > 0 ? ', ' : '' %><%= p.name %><% }) %>.
+  Постовой допуск проверяется отдельно по каждому посту.
+  Исключаются отсутствующие, находящиеся в отсыпном и уже занятые
+  в пересекающемся наряде.
+</p>
+
+<p class="muted">
+  В скобках — накопленная нагрузка с <%= fmtDay(workloadFrom) %>:
+  сумма весов нарядов и их число. Первым в списке идет наименее нагруженный.
+</p>
+
+<% if (posts.length === 0) { %>
+  <p class="warn">
+    У этого вида наряда не заведено ни одного действующего поста.
+    Заведите посты во вкладке <a href="/duty-types" target="_blank">«Наряды»</a>.
+  </p>
+<% } else { %>
+  <table class="table posts-table">
+    <thead>
+      <tr>
+        <th class="col-post">Пост</th>
+        <th>Подразделение</th>
+        <th>Назначить</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% posts.forEach(({ post, candidates }) => { %>
+        <tr class="<%= candidates.length === 0 ? 'row-empty' : '' %>">
+          <td>
+            <strong><%= post.name %></strong>
+            <% if (post.short_name) { %>
+              <span class="muted">(<%= post.short_name %>)</span>
+            <% } %>
+          </td>
+          <td class="muted"><%= post.unit_short || '— общий —' %></td>
+          <td>
+            <% if (candidates.length === 0) { %>
+              <span class="warn-inline">нет допущенных в наличии</span>
+            <% } else { %>
+              <select name="post_<%= post.id %>">
+                <option value="">— не замещать —</option>
+                <% candidates.forEach((c) => { %>
+                  <option value="<%= c.id %>"
+                          class="<%= c.justRested ? 'opt-just-rested' : '' %>">
+                    <%= c.justRested ? '● ' : '' %><%= c.short_name %> — <%= c.unit_short %>
+                    (<%= c.weight %> / <%= c.dutyCount %>)<%= c.justRested ? ' — сразу после отсыпного' : '' %>
+                  </option>
+                <% }) %>
+              </select>
+              <span class="muted candidate-count"><%= candidates.length %></span>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>

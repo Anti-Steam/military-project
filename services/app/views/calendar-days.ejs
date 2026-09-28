@@ -1,0 +1,106 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Празднично-выходные дни, <%= year %></h1>
+  <div class="cal-nav">
+    <a class="btn" href="/calendar?year=<%= year - 1 %>">← <%= year - 1 %></a>
+    <a class="btn" href="/calendar?year=<%= year + 1 %>"><%= year + 1 %> →</a>
+  </div>
+</div>
+
+<p class="muted">
+  Суббота и воскресенье считаются нерабочими сами по себе и в перечне не
+  хранятся. Здесь указываются только отклонения: праздник среди недели и
+  рабочий день, перенесенный на выходной. Перечень влияет на срок выпуска
+  приказа: он приходится на ближайший предшествующий рабочий день.
+</p>
+
+<form method="post" action="/calendar" class="form">
+<input type="hidden" name="_csrf" value="<%= csrf %>">
+  <div class="row">
+    <label class="field">
+      <span class="field-label">С даты</span>
+      <input type="date" name="dateFrom" required>
+    </label>
+
+    <label class="field">
+      <span class="field-label">По дату (включительно)</span>
+      <input type="date" name="dateTo">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Вид дня</span>
+      <select name="kind" required>
+        <option value="holiday">Нерабочий (праздник, объявленный выходной)</option>
+        <option value="workday">Рабочий (перенос на выходной)</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Наименование</span>
+      <input type="text" name="name" placeholder="например: Новогодние каникулы">
+    </label>
+  </div>
+
+  <p class="muted">
+    Поле «по дату» можно не заполнять — тогда отмечается одни сутки.
+    Период записывается посуточно, поэтому отдельный день внутри него
+    потом переносится независимо от остальных.
+  </p>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Внести период</button>
+  </div>
+</form>
+
+<h2>Внесено: <%= ranges.length %> периодов, <%= totalDays %> суток</h2>
+
+<% if (ranges.length === 0) { %>
+  <p class="muted">За <%= year %> год отклонений не внесено.</p>
+<% } else { %>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Период</th>
+        <th>Суток</th>
+        <th>Вид дня</th>
+        <th>Наименование</th>
+        <th class="col-check"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% ranges.forEach((r) => { %>
+        <tr>
+          <td>
+            <% if (r.dateFrom === r.dateTo) { %>
+              <%= fmtDay(r.dateFrom) %>
+            <% } else { %>
+              <%= fmtDay(r.dateFrom) %> — <%= fmtDay(r.dateTo) %>
+            <% } %>
+          </td>
+          <td><%= r.days %></td>
+          <td>
+            <% if (r.kind === 'holiday') { %>
+              <span class="tag tag-holiday">нерабочий</span>
+            <% } else { %>
+              <span class="tag">рабочий</span>
+            <% } %>
+          </td>
+          <td><%= r.name || '' %></td>
+          <td class="col-check">
+            <form method="post" action="/calendar/delete">
+            <input type="hidden" name="_csrf" value="<%= csrf %>">
+              <input type="hidden" name="dateFrom" value="<%= r.dateFrom %>">
+              <input type="hidden" name="dateTo" value="<%= r.dateTo %>">
+              <button type="submit" class="btn btn-link" title="Убрать период из перечня">
+                убрать
+              </button>
+            </form>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<%- include('partials/footer') %>

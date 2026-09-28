@@ -1,0 +1,26 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1><%= title %></h1>
+</div>
+
+<p class="warn">
+  Временный пароль показывается ОДИН раз и в базе не хранится. Передайте его
+  владельцу записи; при первом входе система потребует сменить пароль.
+  Если пароль потерян — выдайте новый.
+</p>
+
+<dl class="props">
+  <dt>Логин</dt>
+  <dd><strong><%= login %></strong></dd>
+
+  <dt>Временный пароль</dt>
+  <dd><code class="secret"><%= password %></code></dd>
+</dl>
+
+<div class="actions">
+  <a class="btn btn-primary" href="/users">К списку записей</a>
+  <a class="btn" href="/users/<%= id %>">Настроить права</a>
+</div>
+
+<%- include('partials/footer') %>

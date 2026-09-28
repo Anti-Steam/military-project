@@ -1,0 +1,208 @@
+<%- include('partials/header', { title }) %>
+
+<div class="page-head">
+  <h1>Состав наряда № <%= duty.id %></h1>
+  <a class="btn" href="/duties/<%= duty.id %>">Назад к наряду</a>
+</div>
+
+<dl class="props">
+  <dt>Вид наряда</dt>
+  <dd><span class="tag"><%= duty.duty_code %></span> <%= duty.duty_name %></dd>
+
+  <dt>Заступление</dt>
+  <dd><%= fmtDateTime(duty.starts_at) %></dd>
+
+  <dt>Сдача</dt>
+  <dd><%= fmtDateTime(duty.ends_at) %></dd>
+
+  <dt>Замещено</dt>
+  <dd>
+    <strong><%= assignedCount %></strong> из <%= postCount %>
+    <% if (assignedCount < postCount) { %>
+      <span class="warn-inline">не замещено: <%= postCount - assignedCount %></span>
+    <% } %>
+  </dd>
+</dl>
+
+<% if (duty.status === 'approved') { %>
+  <p class="warn">
+    Наряд утвержден. Сохранение изменений снимет утверждение со всего
+    приказа: подписанный состав и фактический должны совпадать.
+  </p>
+<% } %>
+
+<p class="muted">
+  Назначенные остаются на своих постах. Освободившийся пост замещается из
+  списка тех, кто в наличии, имеет допуски и выдержал отдых на эти сутки.
+  В скобках — накопленная нагрузка с <%= fmtDay(workloadFrom) %>.
+  <span class="just-rested-note">●</span> — выходит в наряд сразу после
+  отсыпного.
+</p>
+
+<form method="post" action="/duties/<%= duty.id %>/edit" class="form">
+  <input type="hidden" name="_csrf" value="<%= csrf %>">
+  <table class="table posts-table">
+    <thead>
+      <tr>
+        <th class="col-post">Пост</th>
+        <th>Подразделение</th>
+        <th>Назначен</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% rows.forEach((row) => { const { post, candidates, current } = row; %>
+        <tr class="<%= current ? (current.broken ? 'row-broken' : '') : 'row-empty' %>">
+          <td>
+            <strong><%= post.name %></strong>
+            <% if (post.short_name) { %>
+              <span class="muted">(<%= post.short_name %>)</span>
+            <% } %>
+          </td>
+          <td class="muted"><%= post.unit_short || '— общий —' %></td>
+          <td>
+            <%
+              // Назначенный на пост может выпасть из кандидатов: допуск мог
+              // истечь, а человек — попасть в отсутствующие уже после
+              // назначения. Тогда он показывается отдельной строкой, чтобы
+              // снятие оставалось осознанным действием.
+              const outOfList = current && !current.inCandidates;
+              const broken = current && current.broken;
+            %>
+            <select name="post_<%= post.id %>" data-class="<%= row.slotClass %>">
+              <option value="">— не замещать —</option>
+
+              <% if (outOfList) { %>
+                <option value="<%= current.id %>" selected>
+                  <%= current.name %> — назначен ранее<%= broken ? ', ' + broken : '' %>
+                </option>
+              <% } %>
+
+              <% candidates.forEach((c) => { %>
+                <option value="<%= c.id %>"
+                        class="<%= c.justRested ? 'opt-just-rested' : '' %>"
+                        <%= current && current.id === c.id ? 'selected' : '' %>>
+                  <%= c.justRested ? '● ' : '' %><%= c.short_name %> — <%= c.unit_short %>
+                  [очередь <%= c.queue.value %>]<%= c.justRested ? ' — сразу после отсыпного' : '' %>
+                </option>
+              <% }) %>
+            </select>
+
+            <% if (candidates.length === 0 && !current) { %>
+              <span class="warn-inline">нет допущенных в наличии</span>
+            <% } else { %>
+              <span class="muted candidate-count"><%= candidates.length %></span>
+            <% } %>
+
+            <% if (broken) { %>
+              <span class="warn-inline">назначен с нарушением: <%= broken %></span>
+            <% } %>
+
+            <% if (current && current.note) { %>
+              <span class="tag tag-note" title="Примечание к назначению">
+                <%= current.note %>
+              </span>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <!-- Посты со своим графиком замещаются на каждые сутки смены, поэтому
+       правятся отдельными разделами. -->
+  <% (typeof shiftDays === 'undefined' ? [] : shiftDays).forEach((sd) => { %>
+    <h2>Посты на сутки <%= fmtDay(sd.date) %></h2>
+    <table class="table posts-table">
+      <thead>
+        <tr>
+          <th class="col-post">Пост</th>
+          <th>Подразделение</th>
+          <th>Назначен</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% sd.rows.forEach((row) => { %>
+          <tr class="<%= row.current ? (row.current.broken ? 'row-broken' : '') : 'row-empty' %>">
+            <td>
+              <strong><%= row.post.name %></strong>
+              <span class="muted">— <%= row.post.start_time.slice(0, 5) %>, <%= row.post.duration_hours %> ч</span>
+            </td>
+            <td class="muted"><%= row.post.unit_short || '— общий —' %></td>
+            <td>
+              <select name="shift_<%= row.post.id %>_<%= sd.date %>" data-class="<%= row.slotClass %>">
+                <option value="">— не замещать —</option>
+                <% if (row.current && !row.current.inCandidates) { %>
+                  <option value="<%= row.current.id %>" selected>
+                    <%= row.current.name %> — назначен ранее<%= row.current.broken ? ', ' + row.current.broken : '' %>
+                  </option>
+                <% } %>
+                <% row.candidates.forEach((c) => { %>
+                  <option value="<%= c.id %>"
+                          class="<%= c.justRested ? 'opt-just-rested' : '' %>"
+                          <%= row.current && row.current.id === c.id ? 'selected' : '' %>>
+                    <%= c.justRested ? '● ' : '' %><%= c.short_name %> — <%= c.unit_short %>
+                    [очередь <%= c.queue.value %>]
+                  </option>
+                <% }) %>
+              </select>
+              <span class="muted candidate-count"><%= row.candidates.length %></span>
+              <% if (row.current && row.current.broken) { %>
+                <span class="warn-inline">назначен с нарушением: <%= row.current.broken %></span>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% }) %>
+
+  <div class="actions">
+    <button type="submit" class="btn btn-primary">Сохранить состав</button>
+    <a class="btn" href="/duties/<%= duty.id %>">Отмена</a>
+  </div>
+</form>
+
+<script>
+  // Выбранный человек сразу исчезает из мест, несовместимых с занятым: из
+  // остальных постов той же смены и из выходов, пересекающихся с ним по
+  // времени либо по отсыпному. Одна ошибка — один человек на двух местах —
+  // самая частая при ручной правке, и сообщать о ней после сохранения поздно.
+  (function () {
+    var CONFLICTS = <%- JSON.stringify(slotConflicts || {}) %>;
+    var selects = Array.prototype.slice.call(document.querySelectorAll('select[data-class]'));
+
+    function refresh() {
+      var taken = {};
+
+      selects.forEach(function (select) {
+        if (!select.value) return;
+        var group = select.getAttribute('data-class');
+        if (!taken[group]) taken[group] = {};
+        taken[group][select.value] = select;
+      });
+
+      selects.forEach(function (select) {
+        var group = select.getAttribute('data-class');
+        var scope = [group].concat(CONFLICTS[group] || []);
+
+        Array.prototype.forEach.call(select.options, function (option) {
+          var busy = false;
+
+          if (option.value && option.value !== select.value) {
+            busy = scope.some(function (g) {
+              return taken[g] && taken[g][option.value] && taken[g][option.value] !== select;
+            });
+          }
+
+          option.disabled = busy;
+          option.hidden = busy;
+        });
+      });
+    }
+
+    selects.forEach(function (select) { select.addEventListener('change', refresh); });
+    refresh();
+  })();
+</script>
+
+<%- include('partials/footer') %>

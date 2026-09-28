@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/print.css">
+  <%
+    // Лист — по шаблону приказа вида наряда: поля, кегль, интервал. На
+    // экране лист показывается так же, как будет напечатан.
+    const pg = doc.page;
+    const margins = `${pg.marginTop}mm ${pg.marginRight}mm ${pg.marginBottom}mm ${pg.marginLeft}mm`;
+  %>
+  <style>
+    @page { size: A4; margin: <%= margins %>; }
+    .sheet.templated {
+      padding: <%= margins %>;
+      font-size: <%= pg.fontSize %>pt;
+      line-height: <%= pg.lineHeight %>;
+    }
+    @media print { .sheet.templated { padding: 0; } }
+  </style>
+</head>
+<body class="print-body">
+
+  <!-- Панель на экране; при печати скрывается правилами print.css -->
+  <div class="toolbar no-print">
+    <button type="button" class="btn btn-primary" onclick="window.print()">Печать</button>
+    <a class="btn" href="<%= back %>">Назад</a>
+    <% if (typeof sample !== 'undefined' && sample) { %>
+      <span class="muted">
+        Образец по текущему шаблону: люди условные. Суток в приказе:
+        <% [1, 2, 3].forEach((n) => { %>
+          <a href="?days=<%= n %>"><%= n %></a>
+        <% }) %>
+      </span>
+    <% } else if (typeof templateVersion !== 'undefined' && templateVersion) { %>
+      <span class="muted">Составлен по версии шаблона № <%= templateVersion %>.</span>
+    <% } %>
+  </div>
+
+  <article class="sheet templated">
+    <% let n = 0; %>
+    <% doc.items.forEach((item) => { %>
+      <% if (item.type === 'p') { %>
+        <p class="doc-p" style="text-align: <%= item.align %>; text-indent: <%= item.indent %>cm;<%
+           %> margin-top: <%= item.spaceBefore %>pt;<%= item.bold ? ' font-weight: bold;' : '' %>"><%
+          if (item.number) { %><%= item.number %> <% } %><%= item.text %></p>
+      <% } else if (item.type === 'table') { %>
+        <%- include('roster-table', { items: item.rows, start: n }) %>
+        <% n += item.rows.length; %>
+      <% } else if (item.type === 'sign') { %>
+        <div class="doc-sign" style="margin-top: <%= item.spaceBefore %>pt;<%= item.bold ? ' font-weight: bold;' : '' %>">
+          <span class="doc-sign-left"><% String(item.left).split('\n').forEach((line, li) => { %><% if (li) { %><br><% } %><%= line %><% }) %></span>
+          <span class="doc-sign-right"><%= item.right %></span>
+        </div>
+      <% } else if (item.type === 'warn') { %>
+        <p class="muted-doc no-print"><%= item.text %></p>
+      <% } %>
+    <% }) %>
+
+    <% if (typeof printedAt !== 'undefined') { %>
+      <p class="printed-at muted-doc no-print">Сформировано автоматически <%= fmtDateTime(printedAt) %>.</p>
+    <% } %>
+  </article>
+
+</body>
+</html>

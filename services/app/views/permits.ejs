@@ -1,0 +1,195 @@
+<%- include('partials/header', { title }) %>
+
+<%- include('partials/orders-tabs', { tabs }) %>
+
+<div class="page-head">
+  <h1>Приказы на допуск</h1>
+  <span class="muted">
+    Приказы на допуск: направление — год — приказ. Год берется из даты
+    издания, отдельно его заводить не нужно.
+  </span>
+</div>
+
+<p class="muted">
+  Допуск человека опирается на ПРИКАЗ, а не на строку с его номером: приказ
+  можно открыть, увидеть, кого он допустил, и проверить срок. Приказ
+  открывается PDF-ом, чем бы его ни прислали — документ Word пересохраняется
+  при загрузке.
+</p>
+
+<% if (catalog.length === 0) { %>
+  <p class="muted">Направления не заведены.</p>
+<% } %>
+
+<%# Каталог: направления и годы свернуты — раскрывается нужное. Направления
+    переставляются за «⠿» среди соседей своего уровня. %>
+<% const node = (dir, depth) => { %>
+  <details class="unit-node" data-sort-id="<%= dir.id %>">
+    <summary>
+      <% if (canManage) { %><%- include('partials/drag-handle') %><% } %>
+      <span class="unit-name"><%= dir.name %></span>
+      <span class="muted">
+        <% if (dir.total > 0) { %>приказов <%= dir.total %><% } else { %>пусто<% } %>
+        <% if (!dir.is_active) { %> · не применяется<% } %>
+      </span>
+    </summary>
+
+    <div class="unit-body">
+      <% if (dir.years.length === 0 && dir.children.length === 0) { %>
+        <p class="muted">Приказов нет.</p>
+      <% } %>
+
+      <% dir.years.forEach((y) => { %>
+        <details class="year-box">
+          <summary><span class="permit-year"><%= y.year %></span> <span class="muted">приказов <%= y.orders.length %></span></summary>
+          <table class="table">
+            <thead>
+              <tr><th>Приказ</th><th>Издан</th><th>Наименование</th><th>Допусков</th><th>Файл</th></tr>
+            </thead>
+            <tbody>
+              <% y.orders.forEach((o) => { %>
+                <tr>
+                  <td><a href="/permits/orders/<%= o.id %>">№ <%= o.number %></a></td>
+                  <td class="muted"><%= fmtDay(o.issued_on) %></td>
+                  <td><%= o.title || '—' %></td>
+                  <td class="muted"><%= o.permits %></td>
+                  <td>
+                    <% if (o.pdf_path) { %>
+                      <a href="/permits/orders/<%= o.id %>/pdf" target="_blank">открыть PDF</a>
+                    <% } else if (o.file_path) { %>
+                      <span class="warn-inline">PDF не построен</span>
+                    <% } else { %>
+                      <span class="muted">не приложен</span>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </details>
+      <% }) %>
+
+      <div <% if (canManage) { %>data-sortable="/permits/directions/within/<%= dir.id %>/order" data-csrf="<%= csrf %>"<% } %>>
+        <% dir.children.forEach((child) => { %><%- node(child, depth + 1) %><% }) %>
+      </div>
+    </div>
+  </details>
+<% return ''; }; %>
+
+<div <% if (canManage) { %>data-sortable="/permits/directions/within/root/order" data-csrf="<%= csrf %>"<% } %>>
+  <% catalog.forEach((dir) => { node(dir, 0); }) %>
+</div>
+
+<% if (canManage) { %>
+  <h2>Новый приказ</h2>
+
+  <!-- Форма многочастная: вместе со сведениями уходит файл приказа. -->
+  <form method="post" action="/permits/orders" class="form" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+
+    <div class="row">
+      <label class="field">
+        <span class="field-label">Направление</span>
+        <select name="directionId" required>
+          <% directions.forEach((d) => { %>
+            <option value="<%= d.id %>"><%= d.name %></option>
+          <% }) %>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Номер приказа</span>
+        <input type="text" name="number" required placeholder="51">
+      </label>
+
+      <label class="field">
+        <span class="field-label">Дата издания</span>
+        <input type="date" name="issuedOn" required>
+        <span class="muted">По ней приказ попадает в свой год.</span>
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Наименование</span>
+      <input type="text" name="title"
+             placeholder="О допуске личного состава к несению службы в суточном наряде">
+    </label>
+
+    <label class="field">
+      <span class="field-label">Файл приказа</span>
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.png">
+      <span class="muted">
+        PDF, документ Word или скан (скачивается без просмотра PDF), не больше <%= maxSize %> МБ. Word
+        пересохраняется в PDF при загрузке. Файл можно приложить и позже.
+      </span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Примечание</span>
+      <input type="text" name="note">
+    </label>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Завести приказ</button>
+    </div>
+  </form>
+
+  <h2>Направления</h2>
+
+  <p class="muted">
+    Каталог, в котором ищут приказы. Делится настолько подробно, насколько
+    принято в части. Направление с приказами не удаляется — сначала перенесите
+    их.
+  </p>
+  <%- include('partials/sortable-hint') %>
+
+  <table class="table">
+    <thead>
+      <tr><th>Направление</th><th>Вложено в</th><th>Приказов</th><th></th></tr>
+    </thead>
+    <tbody>
+      <% directions.forEach((d) => { %>
+        <tr class="<%= d.is_active ? '' : 'row-inactive' %>">
+          <td>
+            <form method="post" action="/permits/directions/<%= d.id %>" class="form-inline">
+              <input type="hidden" name="_csrf" value="<%= csrf %>">
+              <input type="text" name="name" value="<%= d.name %>" size="36">
+              <label class="check-field">
+                <input type="checkbox" name="isActive" <%= d.is_active ? 'checked' : '' %>>
+                <span>применяется</span>
+              </label>
+              <button type="submit" class="btn btn-link">сохранить</button>
+            </form>
+          </td>
+          <td class="muted">
+            <%= d.parent_id ? (directions.find((x) => x.id === d.parent_id) || {}).name : '—' %>
+          </td>
+          <td class="muted"><%= d.orders %></td>
+          <td>
+            <% if (d.orders === 0) { %>
+              <form method="post" action="/permits/directions/<%= d.id %>/delete" class="form-inline"
+                    onsubmit="return confirm('Удалить направление «<%= d.name %>»?')">
+                <input type="hidden" name="_csrf" value="<%= csrf %>">
+                <button type="submit" class="btn btn-link">удалить</button>
+              </form>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+
+  <form method="post" action="/permits/directions" class="form-inline">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <select name="parentId">
+      <option value="">— верхний уровень —</option>
+      <% directions.forEach((d) => { %>
+        <option value="<%= d.id %>"><%= d.name %></option>
+      <% }) %>
+    </select>
+    <input type="text" name="name" placeholder="Наименование направления" size="36" required>
+    <button type="submit" class="btn btn-primary">Добавить направление</button>
+  </form>
+<% } %>
+
+<%- include('partials/footer') %>
