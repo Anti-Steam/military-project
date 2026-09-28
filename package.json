@@ -9,7 +9,9 @@
     "start": "node scripts/start.js",
     "test": "node --test tests/*.test.js",
     "test:integration": "node --env-file=.env tests/integration.js",
-    "check": "node --env-file=.env tests/run.js"
+    "check": "node --env-file=.env tests/run.js",
+    "demo:save": "node scripts/demo.js save",
+    "demo:load": "node scripts/demo.js load"
   },
   "dependencies": {
     "pg": "^8.13.1"

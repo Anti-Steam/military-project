@@ -23,6 +23,9 @@
 - `docker compose down` — stop; `down -v` also wipes the data volume
 - `npm run migrate` — apply pending SQL migrations from `db/migrations/`
 - `npm run migrate:status` — show which migrations are applied
+- `npm run demo:load` — replace the DB with the synthetic demo set from `db/demo/`
+  (asks for confirmation; all accounts get password `demo`); `npm run demo:save`
+  re-takes it from the current DB — only from a DB with synthetic data. See `СТАРТ.md`.
 - Migrations are immutable once applied: never edit an applied `.sql`, add a new
   numbered file instead. `migrate.js` warns on checksum mismatch.
 - DB credentials live in `.env` (gitignored), generated from `.env.example`.
